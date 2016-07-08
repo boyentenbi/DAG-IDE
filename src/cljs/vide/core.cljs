@@ -15,43 +15,43 @@
 ;; -------------------------
 ;; Functions
 
-(defn editor-did-mount [node-defs-atom node-history-atom cm-atom]
-  (fn [this]
-    (do (prn "editor mounted!")
-      (let [codemirror (js/CodeMirror.
-                                     (reagent/dom-node this)
-                                     (clj->js {:mode "clojure"
-                                          :lineNumbers true
-;;                                           :value (@node-defs-atom (last @node-history-atom))
-                                          }))
-          doc  (.getDoc codemirror)]
-;; (. (->cm-ed e) (setValue (or v "")))
-      (do
-        (.on codemirror "change" #(do
-;;                                   (reset! output (str (evalx (try-read @input))))
-                                  (let [node-defs @node-defs-atom
-                                        node-history @node-history-atom
-                                        current-node (last @node-history-atom)
-                                        new-text (.getValue %)
-                                        [compiled value] (try-read new-text)
-                                        [_ func-name args let-form] value
-                                        new-node-defs (assoc node-defs current-node new-text)
-                                        new-node-history (-> node-history
-                                                             (drop-last)
-                                                             (vec)
-                                                             (conj (str func-name)))]
-                                    (do
-                                      (do-prn (reset! node-defs-atom new-node-defs))
+;; (defn editor-did-mount [node-defs-atom node-history-atom cm-atom]
+;;   (fn [this]
+;;     (do (prn "editor mounted!")
+;;       (let [codemirror (js/CodeMirror.
+;;                                      (reagent/dom-node this)
+;;                                      (clj->js {:mode "clojure"
+;;                                           :lineNumbers true
+;; ;;                                           :value (@node-defs-atom (last @node-history-atom))
+;;                                           }))
+;;           doc  (.getDoc codemirror)]
+;; ;; (. (->cm-ed e) (setValue (or v "")))
+;;       (do
+;;         (.on codemirror "change" #(do
+;; ;;                                   (reset! output (str (evalx (try-read @input))))
+;;                                   (let [node-defs @node-defs-atom
+;;                                         node-history @node-history-atom
+;;                                         current-node (last @node-history-atom)
+;;                                         new-text (.getValue %)
+;;                                         [compiled value] (try-read new-text)
+;;                                         [_ func-name args let-form] value
+;;                                         new-node-defs (assoc node-defs current-node new-text)
+;;                                         new-node-history (-> node-history
+;;                                                              (drop-last)
+;;                                                              (vec)
+;;                                                              (conj (str func-name)))]
+;;                                     (do
+;;                                       (do-prn (reset! node-defs-atom new-node-defs))
 
-;;                                       (when compiled
-;;                                         (reset! node-defs-atom
-;;                                                 (rename-keys new-node-defs {current-node (str func-name)}))
-;;                                         (reset! node-history-atom new-node-history))
-                                      ))))
-        (do-prn (reset! cm-atom codemirror))
-;;         (.setValue @cm-atom (or  "" (@node-defs-atom (last @node-history-atom))))
-        )
-      ))))
+;; ;;                                       (when compiled
+;; ;;                                         (reset! node-defs-atom
+;; ;;                                                 (rename-keys new-node-defs {current-node (str func-name)}))
+;; ;;                                         (reset! node-history-atom new-node-history))
+;;                                       ))))
+;;         (do-prn (reset! cm-atom codemirror))
+;; ;;         (.setValue @cm-atom (or  "" (@node-defs-atom (last @node-history-atom))))
+;;         )
+;;       ))))
 
 ;; (defn editor-did-update [node-defs-atom node-history-atom cm-atom]
 ;;   (when @cm-atom
@@ -100,16 +100,16 @@
              (.createElement js/document "div")
              (clj->js {:mode "clojure"
                        :lineNumbers true})))
-        node-history-atom (atom [])
+        node-history-atom (atom '())
         uuid-history-atom (atom [])
         _  (load-node-defs node-defs-atom)
         ]
     (.on @cm-atom
          "change"
 ;;          #()
-         #(when-let [current-node (do-prn (last @node-history-atom))]
+         #(when-let [current-node (last @node-history-atom)]
             (let [new-text (.getValue %)
-;;                   [compiled value] (try-read new-text)
+                  [compiled value] (try-read new-text)
 ;;                   [_ func-name args let-form] value
                   new-node-defs (assoc @node-defs-atom current-node new-text)
 ;;                   new-node-history (-> @node-history-atom
@@ -117,7 +117,7 @@
 ;;                                        (vec)
 ;;                                        (conj (str func-name)))
                   ]
-              (do-prn (reset! node-defs-atom new-node-defs)))
+              (reset! node-defs-atom new-node-defs))
 
             ;;                                       (when compiled
             ;;                                         (reset! node-defs-atom

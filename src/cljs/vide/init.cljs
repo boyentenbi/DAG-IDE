@@ -56,10 +56,21 @@
   (swap! app-state #(assoc-in % key-list value)))
 
 
-(defn next-graph [uuid node uuid-history-atom node-history-atom ]
+(defn next-graph [uuid node node-defs-atom uuid-history-atom node-history-atom cm-atom]
   (do
-    (reset! uuid-history-atom (conj @uuid-history-atom uuid))
-    (reset! node-history-atom (conj @node-history-atom node))))
+    (swap! uuid-history-atom #(conj (remove #{uuid} %) uuid))
+    (swap! node-history-atom #(conj (remove #{node} %) node))
+    (prn (str @node-history-atom))
+    (.setValue @cm-atom (@node-defs-atom node))))
+
+(defn prev-graph [node-defs-atom uuid-history-atom node-history-atom cm-atom]
+  (do
+    (swap! uuid-history-atom #(drop 1 %))
+    (swap! node-history-atom #(drop 1 %))
+
+    (if-let [current-node (first @node-history-atom)]
+      (.setValue @cm-atom (@node-defs-atom current-node))
+      (.setValue @cm-atom ""))))
 
 (defn load-node-defs [node-defs-atom]
   (let [code pretend-code
@@ -124,9 +135,9 @@
 ;;                                             (rename-keys new-node-defs {current-node (str func-name)})))
 ;;                                     (reset! node-history-atom new-node-history)))}]]))
 
-(defn node-view [x y node uuid uuid-history-atom node-history-atom] ;; appends the node idx to the focus path to get the correct node
+(defn node-view [x y node uuid node-defs-atom uuid-history-atom node-history-atom cm-atom] ;; appends the node idx to the focus path to get the correct node
 
-  [:g  {:on-click #(next-graph uuid node uuid-history-atom node-history-atom)
+  [:g  {:on-click #(next-graph uuid node node-defs-atom uuid-history-atom node-history-atom cm-atom)
         :key uuid}
    [:rect {:width node-w
            :height node-h
@@ -196,9 +207,8 @@
                      :display "inline-block"
                      :font-size "16px"}
              :on-click #(do
-                          (next-graph :placeholder-dropdown-uuid node
-                                    uuid-history-atom node-history-atom)
-                          (.setValue @cm-atom (@node-defs-atom node)))
+                          (next-graph :placeholder-dropdown-uuid node node-defs-atom
+                                    uuid-history-atom node-history-atom  cm-atom))
              }
     node]])
 
@@ -220,11 +230,11 @@
                         (range freq))]
     quadtuples))
 
-(defn graph-view [nodes edges uuid-history-atom node-history-atom]
+(defn graph-view [nodes edges node-defs-atom uuid-history-atom node-history-atom cm-atom]
   (let [uuids (keys nodes)
         layers  (get-best-layers uuids edges)
         graph-height (* spacing-down (count layers))
-        graph-width (* spacing-right (apply max (map count layers)))
+        graph-width (* spacing-right (or (apply max (map count layers)) 0))
         edge-freqs  (frequencies edges)]
     [:svg
      {
@@ -262,8 +272,10 @@
                            (+ graph-height (* -1 spacing-down y))
                            node
                            uuid
+                           node-defs-atom
                            uuid-history-atom
-                           node-history-atom))))]))
+                           node-history-atom
+                           cm-atom))))]))
 
 (defn focus-view [node-defs-atom uuid-history-atom node-history-atom cm-atom]
   (let [_ (prn "loading focus view")
@@ -271,11 +283,11 @@
          node-defs @node-defs-atom
         uuid-history @uuid-history-atom
         node-history @node-history-atom
-        last-node  (last node-history)
+        current-node  (first node-history)
 
-        code (get-in node-defs [last-node])
+        code (get-in node-defs [current-node])
         {nodes :nodes
-         edges :edges}  (if last-node
+         edges :edges}  (if current-node
                           (parse-defn-let (read-string code))
                           nil)
         ]
@@ -289,22 +301,20 @@
      [:div {:style {:position "absolute"
                     :left 10
                     :top 10}}
-      (button-view "back" #(do
-                             (reset! uuid-history-atom (vec (drop-last uuid-history)))
-                             (reset! uuid-history-atom (vec (drop-last node-history)))))
+      (button-view "back" #(prev-graph node-defs-atom uuid-history-atom node-history-atom cm-atom))
       ]
      [:p {:style {:position "absolute"
                   :top 50
                   :left 20
                   :font-size 30
-                  :font-family "Ubuntu"}} last-node ]
+                  :font-family "Ubuntu"}} current-node ]
      (nodes-dropdown node-defs-atom uuid-history-atom node-history-atom  cm-atom)
      [:div {:style {:position "absolute"
                     :left 10
                     :bottom 10}}
       (button-view "+" #())
       ]
-     (graph-view nodes edges uuid-history-atom node-history-atom)]))
+     (graph-view nodes edges node-defs-atom uuid-history-atom node-history-atom cm-atom)]))
 
 
 ;; (defn all-view []
