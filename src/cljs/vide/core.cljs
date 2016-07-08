@@ -60,11 +60,28 @@
 (defn update-editor [cm-atom wrapper-id]
   (fn [this]
     (when @cm-atom
-      (prn(str "Updating editor with atom " @cm-atom) )
       (when-let [node (or (js/document.getElementById wrapper-id)
                           (reagent/dom-node this))]
         (.appendChild node (.getWrapperElement @cm-atom))
         ))))
+(defn on-cm-update [node-defs-atom node-history-atom]
+  (fn [this]
+    (when-let [current-node (first @node-history-atom)]
+            (let [new-text (.getValue this)
+                  [compiled value] (try-read new-text)
+;;                   [_ func-name args let-form] value
+;;                   new-node-history (-> @node-history-atom
+;;                                        (drop-last)
+;;                                        (vec)
+;;                                        (conj (str func-name)))
+                  ]
+              (swap! node-defs-atom #(assoc % current-node new-text)))
+
+            ;;                                       (when compiled
+            ;;                                         (reset! node-defs-atom
+            ;;                                                 (rename-keys new-node-defs {current-node (str func-name)}))
+            ;;                                         (reset! node-history-atom new-node-history))
+            )))
 
 ;; (defn render-code [this]
 ;;   (->> this reagent/dom-node (.highlightBlock js/hljs)))
@@ -82,13 +99,15 @@
 ;; Views
 
 
-
 (defn editor [cm-atom]
   (reagent/create-class
          {:reagent-render         (fn [] @cm-atom [:div {:id "cm-wrapper"
-                                                         :style {:top 0
+                                                         :style {:position "absolute"
+                                                                  :top 0
                                                                  :left 0
-                                                                  :height "100%"}
+                                                                  :height "100%"
+                                                                 :width "50%"
+                                                                 :border-right "solid grey 2px"}
                                                          }])
           :component-did-update   (update-editor cm-atom "cm-wrapper")
           :component-did-mount    (update-editor cm-atom "cm-wrapper")}))
@@ -99,43 +118,24 @@
         cm-atom (atom (js/CodeMirror.
              (.createElement js/document "div")
              (clj->js {:mode "clojure"
-                       :lineNumbers true})))
+;;                        :lineNumbers true
+;;                        :theme "pastel-on-dark"
+                       :cursorHeight 0.85
+                       :lineWrapping true
+                       })))
         node-history-atom (atom '())
-        uuid-history-atom (atom [])
-        _  (load-node-defs node-defs-atom)
-        ]
+        _  (load-node-defs node-defs-atom)]
     (.on @cm-atom
          "change"
-;;          #()
-         #(when-let [current-node (last @node-history-atom)]
-            (let [new-text (.getValue %)
-                  [compiled value] (try-read new-text)
-;;                   [_ func-name args let-form] value
-                  new-node-defs (assoc @node-defs-atom current-node new-text)
-;;                   new-node-history (-> @node-history-atom
-;;                                        (drop-last)
-;;                                        (vec)
-;;                                        (conj (str func-name)))
-                  ]
-              (reset! node-defs-atom new-node-defs))
-
-            ;;                                       (when compiled
-            ;;                                         (reset! node-defs-atom
-            ;;                                                 (rename-keys new-node-defs {current-node (str func-name)}))
-            ;;                                         (reset! node-history-atom new-node-history))
-            )
-         )
+         (on-cm-update node-defs-atom node-history-atom ))
+    (.setSize @cm-atom "100%" "100%" )
+    (.refresh @cm-atom)
     (fn []
       ;;       @cm-atom
-      [:div {:style {:height "85%"
-                     :width "50%"
-                     :left 0
-                     :top 0
-                     }}
-
+      [:div
        [editor cm-atom]
 
-       (focus-view node-defs-atom uuid-history-atom node-history-atom cm-atom)])))
+       (focus-view node-defs-atom node-history-atom cm-atom)])))
 
 
 (defn about-page []

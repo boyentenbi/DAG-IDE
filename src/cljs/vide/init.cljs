@@ -22,15 +22,22 @@
 (def spacing-down (* 0.25 scale))
 (def font-size 3)
 (def same-edge-spacing (* 0.15 node-w))
-(def arrowhead-angle (/ 6.283 24))
-(def arrowhead-l (* 0.15 spacing-down))
+(def arrowhead-angle (/ 6.283 20))
+(def arrowhead-l (* 0.12 spacing-down))
+(def node-style {:fill "white"
+                   :stroke "orange"
+                   :stroke-width 0.8
+                   :opacity 1})
+(def node-text "black")
+(def arrow-fill "black")
+(def button-)
 
 (def pretend-code
   (str
     "(defn double [x] (let [y (+ x x)] y))"
     "(defn inc-vec [myvec] (let [incd (map inc myvec)] incd))"
     "(defn double-vec [myvec] (let [doubled (map double myvec)] doubled))"
-;;     "(defn dupe [x] (let [duped [x x]] duped))"
+    ;;     "(defn dupe [x] (let [duped [x x]] duped))"
     )
   )
 
@@ -40,7 +47,6 @@
   (atom
     {;; These only change when you modify the graph
       :node-defs {}
-      :uuid-history [] ;; This changes every time you zoom/unzoom
       :node-history [] ;; Makes it easier to get previous node (instead of using idx history)
       }))
 
@@ -56,16 +62,13 @@
   (swap! app-state #(assoc-in % key-list value)))
 
 
-(defn next-graph [uuid node node-defs-atom uuid-history-atom node-history-atom cm-atom]
+(defn next-graph [node node-defs-atom node-history-atom cm-atom]
   (do
-    (swap! uuid-history-atom #(conj (remove #{uuid} %) uuid))
     (swap! node-history-atom #(conj (remove #{node} %) node))
-    (prn (str @node-history-atom))
     (.setValue @cm-atom (@node-defs-atom node))))
 
-(defn prev-graph [node-defs-atom uuid-history-atom node-history-atom cm-atom]
+(defn prev-graph [node-defs-atom node-history-atom cm-atom]
   (do
-    (swap! uuid-history-atom #(drop 1 %))
     (swap! node-history-atom #(drop 1 %))
 
     (if-let [current-node (first @node-history-atom)]
@@ -79,77 +82,21 @@
         names (map #(str (second %)) defn-let-forms)
         codes (map str defn-let-forms) ;;that name lol
         node-defs (zipmap names codes)]
-     (reset! node-defs-atom node-defs )))
+    (reset! node-defs-atom node-defs)))
 
-
-
-;; (defn compiled-view []
-;;     [:div {:style {:border "solid"
-;;                   :padding "10 10 10 10"
-;;                   :height "10%"
-;;                   :width "100%"
-;;                   :font-family "Ubuntu"
-;;                   :font-size 14
-;;                   :overflow-y "scroll"
-;;                   }}
-;;      (let [node-defs (:node-defs @app-state)
-;;            current-node (last (:node-history @app-state))
-;;             code-string (node-defs current-node)
-;;            [compiled value] (try-read code-string)]
-;;        (do
-;;          (when compiled
-;;            (reset! focus-state (parse-defn-let value)))
-;;          (str value)))])
-
-;; (defn editor-view [node-defs-atom node-history-atom]
-;;   (let [node-defs @node-defs-atom
-;;         node-history @node-history-atom
-;;         current-node (last @node-history-atom)]
-;;     [:div {:style {:position "absolute"
-;;                    :height "84%"
-;;                    :width "50%"
-;;                    :left 10
-;;                    :top 10}}
-;;      [:textarea {
-;;                   :value (node-defs current-node)
-;;                   :placeholder "Write code here"
-;;                   :overflow "scroll"
-;;                   :wrap "soft"
-;;                   :spellCheck "false"
-;;                   :style {:height "100%"
-;;                           :width "100%"
-;;                           :font-size 14}
-;;                   :on-change #(let [new-text (-> % .-target .-value)
-;;                                     [compiled value] (try-read new-text)
-;;                                     [_ func-name args let-form] value
-;;                                     new-node-defs (assoc node-defs current-node new-text)
-;;                                     new-node-history (-> node-history
-;;                                                     (drop-last)
-;;                                                     (vec)
-;;                                                     (conj (str func-name)))]
-;;                                 (do
-;;                                   (reset! node-defs-atom new-node-defs)
-
-;;                                   (when compiled
-;;                                     (reset! node-defs-atom
-;;                                             (rename-keys new-node-defs {current-node (str func-name)})))
-;;                                     (reset! node-history-atom new-node-history)))}]]))
-
-(defn node-view [x y node uuid node-defs-atom uuid-history-atom node-history-atom cm-atom] ;; appends the node idx to the focus path to get the correct node
-
-  [:g  {:on-click #(next-graph uuid node node-defs-atom uuid-history-atom node-history-atom cm-atom)
+(defn node-view [x y node uuid node-defs-atom node-history-atom cm-atom]
+  ;; appends the node idx to the focus path to get the correct node
+  [:g  {:on-click #(next-graph node node-defs-atom node-history-atom cm-atom)
         :key uuid}
    [:rect {:width node-w
            :height node-h
            :x x
            :y y
-           :style {:fill "white"
-                   :stroke "darkorange"
-                   :stroke-width 1
-                   :opacity 1}}]
+           :style node-style}]
    [:text {:x (+ x (* 0.35 font-size))
            :y (+ y (* 1.15 font-size))
-           :style {:font-size font-size
+           :style {:fill node-text
+                    :font-size font-size
                    :font-family "Ubuntu"}}
     node]])
 
@@ -162,63 +109,66 @@
         p2 (str x2 "," y2)
         x3 (+ x (* arrowhead-l (.sin js/Math a3)))
         y3 (+ y ( * arrowhead-l (.cos js/Math a3)))
-        p3 (str x3 "," y3)
-        ]
+        p3 (str x3 "," y3)]
     [:polygon {:points (str p1 " " p2 " " p3)
-               :style {:fill "black"}
-;;                :key (gensym "arrowhead-")
-               }
-     ]))
+               :style {:fill arrow-fill}}]))
 
 (defn edge-view [x1 y1 x2 y2]
   [:g {:key (gensym (str "edge-"))}
    [:line {:x1 x1
-          :y1 y1
-          :x2 x2
-          :y2 y2
-          :style {:stroke "rgb(0,0,0)"
-                  :stroke-width 0.3
-                  :opacity 1}
-          }]
+           :y1 y1
+           :x2 x2
+           :y2 y2
+           :style {:stroke arrow-fill
+                   :stroke-width 0.3
+                   :opacity 1}
+           }]
    (arrowhead-view (+ (* 0.4 x1) (* 0.6 x2))
                    (+ (* 0.4 y1) (* 0.6 y2))
                    (+ 3.1416 (.atan js/Math (/ (- x2 x1) (- y2 y1)))))])
 
 (defn button-view [text callback]
-  [:button {:style {:background-color "#4CAF50"
-                    :border "none"
+  [:button {:style {:background-color "#f44336"
+                    :border "solid #f44336"
+                    :border-radius "2px"
                     :color "white"
-                    :padding "15px 32px"
                     :text-align "center"
                     :text-decoration "none"
                     :display "inline-block"
-                    :font-size "18px"
+                    :font-size "14"
+                    :padding "8px 16px"
                     :font-family "Ubuntu"}
             :on-click callback} text])
 
-(defn dropdown-node [node node-defs-atom uuid-history-atom node-history-atom cm-atom]
-  [:li {
-         :key (gensym "dropdown-")}
-   [:button {:style {:background-color "#4CAF50"
-                     :border "none"
-                     :color "white"
-                     :text-align "center"
-                     :text-decoration "none"
-                     :display "inline-block"
-                     :font-size "16px"}
-             :on-click #(do
-                          (next-graph :placeholder-dropdown-uuid node node-defs-atom
-                                    uuid-history-atom node-history-atom  cm-atom))
-             }
-    node]])
+(defn dropdown-node [node]
+  [:option {:key (gensym "dropdown-")} node])
 
-(defn nodes-dropdown [node-defs-atom uuid-history-atom node-history-atom cm-atom]
-  [:ul {:style {:list-style-type "none"
-                :right 0
-                :top 0
-                :position "absolute"}}
-   (for [node (keys @node-defs-atom)]
-     (dropdown-node node node-defs-atom uuid-history-atom node-history-atom cm-atom))])
+(defn nodes-dropdown [node-defs-atom  node-history-atom cm-atom]
+  [:select
+   {:id "node-select"
+    :on-change #(do-prn (let [node (-> % .-target .-value)]
+                          (next-graph node node-defs-atom
+                                      node-history-atom  cm-atom)))
+
+    :style {:list-style-type "none"
+            :right 10
+            :top 10
+            :position "absolute"
+            :background-color "orange"
+            :border "solid orange"
+            :border-radius "2px"
+            :color "white"
+            :text-align "left"
+            :text-decoration "none"
+            :display "inline-block"
+            :font-family "Ubuntu"
+            :width "40%"
+            :font-size "12px"
+            :padding "5px 16px"}}
+
+   (conj (for [node (keys @node-defs-atom)]
+     (dropdown-node node))
+         [:option {:key "select-label"} "Choose node"])])
 
 (defn space-edges [x1 y1 x2 y2 freq]
   (let [n-spaces (dec freq)
@@ -230,20 +180,19 @@
                         (range freq))]
     quadtuples))
 
-(defn graph-view [nodes edges node-defs-atom uuid-history-atom node-history-atom cm-atom]
+(defn graph-view [nodes edges node-defs-atom node-history-atom cm-atom]
   (let [uuids (keys nodes)
         layers  (get-best-layers uuids edges)
         graph-height (* spacing-down (count layers))
         graph-width (* spacing-right (or (apply max (map count layers)) 0))
         edge-freqs  (frequencies edges)]
     [:svg
-     {
-       :width "100%"
-       :height "100%"
-       :view-box (str "0 "
-                      "0 "
-                      (+ spacing-right graph-width) " "
-                      (+ spacing-down graph-height))}
+     {:width "100%"
+      :height "100%"
+      :view-box (str "0 "
+                     "0 "
+                     (+ spacing-right graph-width) " "
+                     (+ spacing-down graph-height))}
      (concat
        (apply concat (map
                        (fn [edge-freq]
@@ -273,48 +222,37 @@
                            node
                            uuid
                            node-defs-atom
-                           uuid-history-atom
                            node-history-atom
                            cm-atom))))]))
 
-(defn focus-view [node-defs-atom uuid-history-atom node-history-atom cm-atom]
-  (let [_ (prn "loading focus view")
-
-         node-defs @node-defs-atom
-        uuid-history @uuid-history-atom
-        node-history @node-history-atom
-        current-node  (first node-history)
-
-        code (get-in node-defs [current-node])
+(defn focus-view [node-defs-atom node-history-atom cm-atom]
+  (let [current-node  (first @node-history-atom)
+        code (get-in @node-defs-atom [current-node])
         {nodes :nodes
          edges :edges}  (if current-node
                           (parse-defn-let (read-string code))
-                          nil)
-        ]
-
-    [:div {:style {:border "solid"
-                   :position "absolute"
-                   :right 10
-                   :top 10
-                   :height "95%"
-                   :width "45%"}}
+                          nil)]
+    [:div {:style {
+                    :position "absolute"
+                    :right 10
+                    :top 0
+                    :height "100%"
+                    :width "48%"}}
      [:div {:style {:position "absolute"
                     :left 10
                     :top 10}}
-      (button-view "back" #(prev-graph node-defs-atom uuid-history-atom node-history-atom cm-atom))
-      ]
+      (button-view "back" #(prev-graph node-defs-atom node-history-atom cm-atom))]
      [:p {:style {:position "absolute"
-                  :top 50
+                  :top 80
                   :left 20
                   :font-size 30
                   :font-family "Ubuntu"}} current-node ]
-     (nodes-dropdown node-defs-atom uuid-history-atom node-history-atom  cm-atom)
+     (nodes-dropdown node-defs-atom node-history-atom  cm-atom)
      [:div {:style {:position "absolute"
                     :left 10
                     :bottom 10}}
-      (button-view "+" #())
-      ]
-     (graph-view nodes edges node-defs-atom uuid-history-atom node-history-atom cm-atom)]))
+      (button-view "+" #())]
+     (graph-view nodes edges node-defs-atom node-history-atom cm-atom)]))
 
 
 ;; (defn all-view []
