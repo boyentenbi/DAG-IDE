@@ -13,15 +13,8 @@
     (cond
       (not (sequential? form)) true ;; obviously
       (and (list? form) (ifn? (first form))) false
-
       (some false? (map literal? form)) false
       :else true))
-
-(map literal? [identity 1 'a :a "a" + map '(inc 1) '(1 2 3) [:a :b :c] {:a 1 :b 2}
-               '(+ 1 1) '(reverse [1 2]) ['(+ 1 1) 1]])
-;; (prn (map literal? [a 'a :a 1 [1 2 3] '(1 2 3) '(+ 1 2 3)]))
-
-
 
 (defn get-name-tree [form]
   (w/prewalk #(if (literal? %) (str %) %)
@@ -85,16 +78,23 @@
         nodes  (apply merge (map :nodes graphs))
         edges (apply concat (map :edges graphs))
         end-uuids-rep-syms (apply concat (map #(repeat (count %1) %2) symbols end-uuids))
-        symbol-from  (zipmap (flatten symbols) end-uuids-rep-syms)
-        ;; ^ this tells us the uuid of the node that each symbol node is the child of
+        ;;         symbol-from  (zipmap (flatten symbols) end-uuids-rep-syms)
+        ;;         ;; ^ this tells us the uuid of the node that each symbol node is the child of
         get-uuids  (invert-noninj nodes)
         ;; ^ this tells us ALL the uuids with a particular node name
         symbol-uuids (map get-uuids (flatten symbols)) ;; the uuids of nodes for each symbol
-        end-uuids-rep-syms-uses (flatten (map #(repeat (count %1) %2) symbol-uuids end-uuids-rep-syms))
+        end-uuids-rep-syms-uses (flatten
+                                  (map #(repeat (count %1) %2)
+                                       symbol-uuids
+                                       end-uuids-rep-syms))
         replace-symbol-uuid  (zipmap (flatten symbol-uuids) end-uuids-rep-syms-uses)
-        uuid-identity (zipmap (keys nodes) (keys nodes))
-        replace-uuid (merge uuid-identity replace-symbol-uuid)
-        edges-fixed (map #(vec(map replace-uuid %)) edges)
+        replace-uuid #(or (replace-symbol-uuid %) %)
+        symbol-nodes (select-keys nodes (flatten symbol-uuids))
+        edges-fixed (map
+                              #(merge
+                                 (zipmap [:start :end] (map replace-uuid %))
+                                 {:label (symbol-nodes (first %))})
+                              edges)
         arg-node-uuids (keys (apply merge (map :nodes (take (count args) graphs))))
         node-uuids-to-remove (remove (set arg-node-uuids) (flatten symbol-uuids)) ;; all symbol nodes except args
         nodes-fixed (apply (partial dissoc nodes) node-uuids-to-remove) ;; remove the symbol nodes

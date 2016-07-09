@@ -11,52 +11,10 @@
               [vide.parser :refer [parse-defn-let]]
               [vide.init :refer [focus-view app-state next-graph load-node-defs]]
               [cljs.pprint :refer [pprint]]
-              [vide.code_mirror :refer [code-mirror]]))
+              ))
 ;; -------------------------
 ;; Functions
 
-;; (defn editor-did-mount [node-defs-atom node-history-atom cm-atom]
-;;   (fn [this]
-;;     (do (prn "editor mounted!")
-;;       (let [codemirror (js/CodeMirror.
-;;                                      (reagent/dom-node this)
-;;                                      (clj->js {:mode "clojure"
-;;                                           :lineNumbers true
-;; ;;                                           :value (@node-defs-atom (last @node-history-atom))
-;;                                           }))
-;;           doc  (.getDoc codemirror)]
-;; ;; (. (->cm-ed e) (setValue (or v "")))
-;;       (do
-;;         (.on codemirror "change" #(do
-;; ;;                                   (reset! output (str (evalx (try-read @input))))
-;;                                   (let [node-defs @node-defs-atom
-;;                                         node-history @node-history-atom
-;;                                         current-node (last @node-history-atom)
-;;                                         new-text (.getValue %)
-;;                                         [compiled value] (try-read new-text)
-;;                                         [_ func-name args let-form] value
-;;                                         new-node-defs (assoc node-defs current-node new-text)
-;;                                         new-node-history (-> node-history
-;;                                                              (drop-last)
-;;                                                              (vec)
-;;                                                              (conj (str func-name)))]
-;;                                     (do
-;;                                       (do-prn (reset! node-defs-atom new-node-defs))
-
-;; ;;                                       (when compiled
-;; ;;                                         (reset! node-defs-atom
-;; ;;                                                 (rename-keys new-node-defs {current-node (str func-name)}))
-;; ;;                                         (reset! node-history-atom new-node-history))
-;;                                       ))))
-;;         (do-prn (reset! cm-atom codemirror))
-;; ;;         (.setValue @cm-atom (or  "" (@node-defs-atom (last @node-history-atom))))
-;;         )
-;;       ))))
-
-;; (defn editor-did-update [node-defs-atom node-history-atom cm-atom]
-;;   (when @cm-atom
-;;     (.setValue @cm-atom (or  "" (@node-defs-atom (last @node-history-atom))))))
-;; (defn )
 (defn update-editor [cm-atom wrapper-id]
   (fn [this]
     (when @cm-atom
@@ -82,18 +40,6 @@
             ;;                                                 (rename-keys new-node-defs {current-node (str func-name)}))
             ;;                                         (reset! node-history-atom new-node-history))
             )))
-
-;; (defn render-code [this]
-;;   (->> this reagent/dom-node (.highlightBlock js/hljs)))
-
-;;    [:div [:a {:href "/about"} "go to about page"]]
-
-;; (defn result-view [output]
-;;   (do-prn (reagent/create-class
-;;    {:render (fn []
-;;               [:pre>code.clj
-;;                (with-out-str (pprint @output))])
-;;     :component-did-update render-code})))
 
 ;; -------------------------
 ;; Views

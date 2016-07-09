@@ -3,15 +3,16 @@
     [vide.helpers :refer [do-prn drop-nth find-indices first? firstx evalx]]))
 
 (defn childless? [edges uuid]
-  (nil? (some #(first? uuid %) edges)))
+  (nil? (some #(= uuid (:start %)) edges)))
 
 
 (defn find-childless [uuids edges]
   (filter #(childless? edges %) uuids))
 
 (defn has-child-in [uuid layer edges]
-  (let [possible-edges (set (map #(vector uuid %) layer))]
-    (some possible-edges edges)))
+  (let [possible-edges (map #(hash-map :start uuid :end %) layer)
+        unlabelled-edges (map #(dissoc % :label) edges)]
+    (some (set unlabelled-edges) possible-edges)))
 
 (defn get-layer-idx [uuid layers edges checking-idx]
   (if (= checking-idx -1)
@@ -35,7 +36,7 @@
           layers-new (if (= layer-idx n-layers)
                        (conj layers [uuid])
                        (assoc layers layer-idx (conj (nth layers layer-idx) uuid)))
-          edges-new (vec (filter #(not= (last %) uuid) remaining-edges))]
+          edges-new (vec (remove #(= (:end %) uuid) remaining-edges))]
       (recur unsorted-new layers-new  edges-new all-edges))))
 
 ;; Wrap the recursive 'get-layers-inner' function so it uses less args, and take nodes instead of idxs
@@ -66,7 +67,7 @@
                   (map #(conj % x) (get-perms (remove-one x mylist))))))))
 
 (defn get-edge-cost [edge layers]
-  (let [[start end] edge
+  (let [{start :start end :end label :label} edge
         [x1 y1] (apply concat (coords-from-layers start layers))
         [x2 y2] (apply concat (coords-from-layers end layers))
         x-diff (- x2 x1)
@@ -76,7 +77,7 @@
   (reduce + (map #(get-edge-cost % layers) edges)))
 
 
-;; Greedily search through orderings of each layer to minimize a simple square distanc
+;; Greedily search through orderings of each layer to minimize a simple square distance
 (defn sort-layers-from [n layers edges]
   (if (<= n 0)
     layers
@@ -84,7 +85,7 @@
           perms (get-perms layer)
           possible-layers (map #(assoc layers n %) perms)
           best-layers (apply (partial min-key #(get-total-cost % edges)) possible-layers)]
-      (sort-layers-from (dec n) best-layers edges))))
+      (recur (dec n) best-layers edges))))
 
 (defn get-best-layers [uuids all-edges]
   (let [init-layers (get-layers uuids all-edges)

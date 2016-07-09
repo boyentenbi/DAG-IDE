@@ -21,7 +21,7 @@
 (def spacing-right (* 0.22 scale))
 (def spacing-down (* 0.25 scale))
 (def font-size 3)
-(def same-edge-spacing (* 0.15 node-w))
+(def same-edge-spacing (* 0.3 node-w))
 (def arrowhead-angle (/ 6.283 20))
 (def arrowhead-l (* 0.12 spacing-down))
 (def node-style {:fill "white"
@@ -113,19 +113,25 @@
     [:polygon {:points (str p1 " " p2 " " p3)
                :style {:fill arrow-fill}}]))
 
-(defn edge-view [x1 y1 x2 y2]
-  [:g {:key (gensym (str "edge-"))}
-   [:line {:x1 x1
-           :y1 y1
-           :x2 x2
-           :y2 y2
-           :style {:stroke arrow-fill
-                   :stroke-width 0.3
-                   :opacity 1}
-           }]
-   (arrowhead-view (+ (* 0.4 x1) (* 0.6 x2))
-                   (+ (* 0.4 y1) (* 0.6 y2))
-                   (+ 3.1416 (.atan js/Math (/ (- x2 x1) (- y2 y1)))))])
+(defn edge-view [x1 y1 x2 y2 label]
+  (let [_ (prn (str x1 y1 x2 y2 label))
+         arrowhead-x (+ (* 0.4 x1) (* 0.6 x2))
+        arrowhead-y (+ (* 0.4 y1) (* 0.6 y2))
+        th (+ 3.1416 (.atan js/Math (/ (- x2 x1) (- y2 y1))))]
+    [:g {:key (gensym (str "edge-"))}
+     [:line {:x1 x1
+             :y1 y1
+             :x2 x2
+             :y2 y2
+             :style {:stroke arrow-fill
+                     :stroke-width 0.3
+                     :opacity 1}}]
+     (arrowhead-view arrowhead-x arrowhead-y th)
+     (when label
+       [:text {:x (+ (* 0.36 font-size) arrowhead-x)
+               :y (+ (* -1 0.3 font-size) arrowhead-y)
+               :style {:font-size font-size
+                       :font-family "Ubuntu"}} label])]))
 
 (defn button-view [text callback]
   [:button {:style {:background-color "#f44336"
@@ -135,24 +141,26 @@
                     :text-align "center"
                     :text-decoration "none"
                     :display "inline-block"
-                    :font-size "14"
+                    :font-size 14
                     :padding "8px 16px"
                     :font-family "Ubuntu"}
             :on-click callback} text])
 
 (defn dropdown-node [node]
-  [:option {:key (gensym "dropdown-")} node])
+  [:option {:key (gensym "dropdown-")
+            :style {:outline "none"}} node])
 
 (defn nodes-dropdown [node-defs-atom  node-history-atom cm-atom]
   [:select
    {:id "node-select"
-    :on-change #(do-prn (let [node (-> % .-target .-value)]
+    :on-change #(let [node (-> % .-target .-value)]
                           (next-graph node node-defs-atom
-                                      node-history-atom  cm-atom)))
+                                      node-history-atom  cm-atom))
 
     :style {:list-style-type "none"
             :right 10
             :top 10
+            :outline "none"
             :position "absolute"
             :background-color "orange"
             :border "solid orange"
@@ -170,19 +178,20 @@
      (dropdown-node node))
          [:option {:key "select-label"} "Choose node"])])
 
-(defn space-edges [x1 y1 x2 y2 freq]
+(defn space-edges [x1 y1 x2 y2 freq label]
   (let [n-spaces (dec freq)
         left-adjust  (* -1 0.5 n-spaces same-edge-spacing)
-        quadtuples (map #(vector (+ left-adjust x1 (* % same-edge-spacing))
+        info-tuples (map #(vector (+ left-adjust x1 (* % same-edge-spacing))
                                  y1
                                  (+ left-adjust x2 (* % same-edge-spacing))
-                                 y2)
+                                 y2
+                                  label)
                         (range freq))]
-    quadtuples))
+     info-tuples))
 
 (defn graph-view [nodes edges node-defs-atom node-history-atom cm-atom]
   (let [uuids (keys nodes)
-        layers  (get-best-layers uuids edges)
+        layers (get-best-layers uuids edges)
         graph-height (* spacing-down (count layers))
         graph-width (* spacing-right (or (apply max (map count layers)) 0))
         edge-freqs  (frequencies edges)]
@@ -196,7 +205,7 @@
      (concat
        (apply concat (map
                        (fn [edge-freq]
-                         (let [[[start end] freq] edge-freq
+                         (let [[{start :start end :end label :label} freq] edge-freq
                                [x1-rel y1-rel] (first (coords-from-layers start layers))
                                [x2-rel y2-rel] (first (coords-from-layers end layers))
                                x1 (-> x1-rel
@@ -211,8 +220,8 @@
                                y2 (-> y2-rel
                                       (* spacing-down -1)
                                       (+ graph-height))
-                               quadtuples  (space-edges x1 y1 x2 y2 freq)]
-                           (map (partial apply edge-view) quadtuples)))
+                               info-tuples  (space-edges x1 y1 x2 y2 freq label)]
+                           (map (partial apply edge-view) info-tuples)))
                        edge-freqs)))
      (doall (for [uuid uuids]
               (let [node (uuid nodes)
