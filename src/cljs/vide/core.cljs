@@ -16,13 +16,10 @@
 ;; -------------------------
 ;; Views
 
-
-
 (defn home-page []
     [:div
      [editor]
      (focus-view)])
-
 
 (defn about-page []
   [:div [:h2 "About vide"]
@@ -30,9 +27,6 @@
 
 (defn current-page []
   [:div [(session/get :current-page)]])
-
-
-
 
 ;; -------------------------
 ;; Routes

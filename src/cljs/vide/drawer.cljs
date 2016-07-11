@@ -93,15 +93,18 @@
         best-layers (sort-layers-from (dec n-layers) init-layers all-edges)]
     best-layers))
 
-(defn find-hltd [edges hltd]
-  (let [not-hltd (remove (set hltd) edges)
-         input-edges (filter #(not-any? #{(:start %)} (map :end not-hltd)) not-hltd )
-;;         hltable-edges (remove (set input-edges) init-not-hltd)
+(defn get-hltd [edges hltd]
+  (let [hlts (merge (zipmap edges (repeat (count edges) nil)) hltd)
+        input-edges  (filter #(not-any? #{(:start %)} (map :end edges)) edges)
+        ;;         hltable-edges (remove (set input-edges) init-not-hltd)
         ]
-    (loop [not-hltd not-hltd
-           hltd hltd]
-      (let [poss-add-hltd (filter #(not-any? #{(:start %)} (map :end not-hltd)) not-hltd)
-            add-hltd (remove (set input-edges) poss-add-hltd)]
+    (loop [hlts hlts]
+      (let [not-hltd (into {} (filter #(nil? (val %)) hlts ))
+             poss-add-hltd  (into {}
+                                  (filter #(not-any? #{(:start (first %))} (map :end (keys not-hltd))) not-hltd))
+            add-hltd (apply (partial dissoc poss-add-hltd)  input-edges)
+            with-vals (zipmap (keys add-hltd) (repeat (count add-hltd) 1)) ;; this is the part where you calculate the values and assoc them in
+            ]
         (if (empty? add-hltd)
-          hltd
-          (recur (remove #{add-hltd} not-hltd) (concat hltd add-hltd)))))))
+          hlts
+          (recur (merge hlts with-vals)))))))

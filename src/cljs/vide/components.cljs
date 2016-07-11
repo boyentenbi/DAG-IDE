@@ -6,7 +6,7 @@
             [clojure.set :refer [rename-keys]]
 ;;             [slurp.core :include-macros true :refer [slurp]]
             [vide.helpers :refer [try-read do-prn drop-nth find-indices first? firstx evalx]]
-            [vide.drawer :refer [childless? get-best-layers coords-from-layers find-hltd]]
+            [vide.drawer :refer [childless? get-best-layers coords-from-layers get-hltd]]
             [vide.parser :refer [parse-defn-let]]
             ))
 ;; ----------------------------------------style params----------------------------------------------
@@ -19,7 +19,7 @@
 (def offset-right (* 0.4 scale))
 (def offset-down (* 1 scale))
 (def spacing-right (* 0.22 scale))
-(def spacing-down (* 0.20 scale))
+(def spacing-down (* 0.18 scale))
 (def font-size 3)
 (def same-edge-spacing (* 0.3 node-w))
 (def arrowhead-angle (/ 6.283 20))
@@ -52,7 +52,8 @@
         defn-let-forms (filter #(= 'defn (first %)) forms) ;; for now this should be all there is
         names (map #(str (second %)) defn-let-forms)
         codes (map str defn-let-forms) ;;that name lol
-        node-defs (zipmap names codes)]
+        defs (map #(hash-map :code %) codes)
+        node-defs (zipmap names defs)]
     (reset! node-defs-atom node-defs)))
 
 (load-node-defs)
@@ -75,48 +76,51 @@
 (defn on-cm-update []
   (fn [this]
     (when-let [current-node (first @node-history-atom)]
-            (let [new-text (.getValue this)
-                  [compiled value] (try-read new-text)
-;;                   [_ func-name args let-form] value
-;;                   new-node-history (-> @node-history-atom
-;;                                        (drop-last)
-;;                                        (vec)
-;;                                        (conj (str func-name)))
-                  ]
-              (swap! node-defs-atom #(assoc % current-node new-text)))
+      (let [new-text (.getValue this)
 
-            ;;                                       (when compiled
-            ;;                                         (reset! node-defs-atom
-            ;;                                                 (rename-keys new-node-defs {current-node (str func-name)}))
-            ;;                                         (reset! node-history-atom new-node-history))
-            )))
-(.on @cm-atom
-     "change"
-     (on-cm-update))
-(.setSize @cm-atom "100%" "100%" )
-(.refresh @cm-atom)
+            compiled (try-read new-text)
+            ;;                   [_ func-name args let-form] value
+            ;;                   new-node-history (-> @node-history-atom
+            ;;                                        (drop-last)
+            ;;                                        (vec)
+            ;;                                        (conj (str func-name)))
+            ]
+        (swap! node-defs-atom #(assoc-in % [current-node :code] new-text))
+        (when compiled
+          (let [{nodes :nodes
+                 edges :edges} (parse-defn-let (try-read new-text))]
 
-;; ---------------------------------------- given edge values ----------------------------------------------
+            (swap! node-defs-atom #(assoc-in % [current-node :nodes] nodes))
+            (swap! node-defs-atom #(assoc-in % [current-node :edges] edges))))
+        ;;                                         (reset! node-defs-atom
+        ;;                                                 (rename-keys new-node-defs {current-node (str func-name)}))
+        ;;                                         (reset! node-history-atom new-node-history))
+        ))))
+  (.on @cm-atom
+       "change"
+       (on-cm-update))
+  (.setSize @cm-atom "100%" "100%" )
+  (.refresh @cm-atom)
 
-(def given-values-atom (atom {}))
+  ;; ---------------------------------------- given edge values ----------------------------------------------
 
-;; -----------------------------------------functions---------------------------------------------
+  (def given-values-atom (atom {}))
+
+  ;; -----------------------------------------functions---------------------------------------------
 
 
-(defn next-graph [node]
-  (do
+  (defn next-graph [node]
+    (do
     (swap! node-history-atom #(conj (remove #{node} %) node))
-    (.setValue @cm-atom (@node-defs-atom node))))
+    (.setValue @cm-atom (get-in @node-defs-atom [node :code]))))
 
 (defn prev-graph []
   (do
     (swap! node-history-atom #(drop 1 %))
 
     (if-let [current-node (first @node-history-atom)]
-      (.setValue @cm-atom (@node-defs-atom current-node))
+      (.setValue @cm-atom (get-in @node-defs-atom [current-node :code]))
       (.setValue @cm-atom ""))))
-
-
 
 (defn update-editor [wrapper-id]
   (fn [this]
@@ -126,7 +130,7 @@
         (.appendChild node (.getWrapperElement @cm-atom))
         ))))
 
-;; ----------------------------------------views----------------------------------------------
+;; ----------------------------------------basic views----------------------------------------------
 
 (defn node-view [x y node uuid]
   ;; appends the node idx to the focus path to get the correct node
@@ -144,7 +148,7 @@
                    :font-family "Ubuntu"}}
     node]])
 
-(defn arrowhead-view [x y th]
+(defn arrowhead-view [x y th col]
   (let [p1 (str x "," y)
         a2 (+ th arrowhead-angle)
         a3 (- th arrowhead-angle)
@@ -155,28 +159,30 @@
         y3 (+ y ( * arrowhead-l (.cos js/Math a3)))
         p3 (str x3 "," y3)]
     [:polygon {:points (str p1 " " p2 " " p3)
-               :style {:fill arrow-fill
-                       :opacity 0.5}}]))
+               :style {:fill col
+                       :opacity 1}}]))
 
-(defn edge-view [x1 y1 x2 y2 label]
+(defn edge-view [x1 y1 x2 y2 label value]
   (let [arrowhead-x (+ (* 0.4 x1) (* 0.6 x2))
         arrowhead-y (+ (* 0.4 y1) (* 0.6 y2))
-        th (+ 3.1416 (.atan js/Math (/ (- x2 x1) (- y2 y1))))]
+        th (+ 3.1416 (.atan js/Math (/ (- x2 x1) (- y2 y1))))
+        col (if value "blue" arrow-fill)]
     [:g {:key (gensym (str "edge-"))
          }
      [:line {:x1 x1
              :y1 y1
              :x2 x2
              :y2 y2
-             :style {:stroke arrow-fill
-                     :stroke-width 0.3
-                     :opacity 0.5}}]
-     (arrowhead-view arrowhead-x arrowhead-y th)
+             :style {:stroke col
+                     :stroke-width 0.4
+                     :opacity 1}}]
+     (arrowhead-view arrowhead-x arrowhead-y th col)
      (when label
        [:text {:x (+ (* 0.36 font-size) arrowhead-x)
-               :y (+ (* -1 0.25 font-size) arrowhead-y)
+               :y (+ (* -1 0.15 font-size) arrowhead-y)
                :style {:font-size font-size
-                       :font-family "Ubuntu"}} label])]))
+                       :font-family "Ubuntu"
+                       :color col}} label value])]))
 
 (defn button-view [text callback]
   [:button {:style {:background-color "#f44336"
@@ -195,12 +201,13 @@
   [:option {:key (gensym "dropdown-")
             :style {:outline "none"}} node])
 
+;; ---------------------------------------- composite views ----------------------------------------------
+
 (defn nodes-dropdown []
   [:select
    {:id "node-select"
     :on-change #(let [node (-> % .-target .-value)]
                   (next-graph node))
-
     :style {:list-style-type "none"
             :right 10
             :top 10
@@ -222,7 +229,7 @@
            (dropdown-node node))
          [:option {:key "select-label"} "Choose node"])])
 
-(defn space-edges [x1 y1 x2 y2 freq label]
+(defn space-edges [x1 y1 x2 y2 freq label hltd]
   (let [n-spaces (dec freq)
         left-adjust  (* -1 0.5 n-spaces same-edge-spacing)
         info-tuples (for [i (range freq)]
@@ -230,10 +237,11 @@
                               y1
                               (+ left-adjust x2 (* i same-edge-spacing))
                               y2
-                              (when (= i (dec freq))label)))]
+                              (when (= i (dec freq))label)
+                              hltd))]
     info-tuples))
 
-(defn get-freq-info [edge-freq layers graph-height graph-width]
+(defn get-freq-info [hltd-edges edge-freq layers graph-height graph-width]
   (let [[{start :start end :end label :label} freq] edge-freq
         [x1-rel y1-rel] (first (coords-from-layers start layers))
         [x2-rel y2-rel] (first (coords-from-layers end layers))
@@ -248,8 +256,10 @@
                (+ graph-width (* 0.5 node-w)))
         y2 (-> y2-rel
                (* spacing-down -1)
-               (+ graph-height))]
-    [x1 y1 x2 y2 freq label]))
+               (+ graph-height))
+        value (get-in hltd-edges [(first edge-freq)]
+                     )]
+    [x1 y1 x2 y2 freq label value]))
 
 (defn edge-input-view [x y edge-name graph-height graph-width edge]
   (let [graph-view  (js/document.getElementById "graph-view")
@@ -272,99 +282,96 @@
                       ;;                       :position "absolute"
                       }
               :on-change (fn [this]
-                           (do-prn (swap!
-                                     given-values-atom
-                                     #(assoc % edge
-                                        (try-read (-> this .-target .-value))))))}]]))
+                           (swap!
+                             given-values-atom
+                             #(assoc % edge
+                                (try-read (-> this .-target .-value)))))}]]))
 
 (defn graph-view [nodes edges]
   (do (prn "rendering graph view")
-  (let [uuids (keys nodes)
-        layers (get-best-layers uuids edges)
-        graph-height (* spacing-down (count layers))
-        graph-width (* spacing-right (or (apply max (map count layers)) 0))
-        edge-freqs  (frequencies edges)
-        per-freq-infos (map #(get-freq-info % layers graph-height graph-width) edge-freqs)
-        per-edge-infos (apply concat (map #(apply space-edges %) per-freq-infos))
-;;         hltd-edges (do-prn (find-hltd edges @given-values-atom))
+    (let [uuids (keys nodes)
+          layers (get-best-layers uuids edges)
+          graph-height (* spacing-down (count layers))
+          graph-width (* spacing-right (or (apply max (map count layers)) 0))
+          edge-freqs  (frequencies edges)
+          hltd-edges (do-prn (get-hltd edges  @given-values-atom))
+          per-freq-infos (map #(get-freq-info hltd-edges % layers graph-height graph-width) edge-freqs)
+          per-edge-infos (apply concat (map #(apply space-edges %) per-freq-infos))
 
-;;         _ (.clientHeight (js/document.getElementById ))
-        ]
-    [:div {:id "graph-view"
-           :style {
-                    :width "100%"
-                    :height "100%"}}
-     [:svg
-      {:width "100%"
-       :height "100%"
-       :view-box (str "0 "
-                      "0 "
-                      (+ spacing-right graph-width) " "
-                      (+ spacing-down  graph-height))
-       :style {:z-index -1}}
+          ;;         _ (.clientHeight (js/document.getElementById ))
+          ]
+      [:div {:id "graph-view"
+             :style {
+                      :width "100%"
+                      :height "100%"}}
+       [:svg
+        {:width "100%"
+         :height "100%"
+         :view-box (str "0 "
+                        "0 "
+                        (+ spacing-right graph-width) " "
+                        (+ spacing-down  graph-height))
+         :style {:z-index -1}}
 
-      (map #(apply edge-view %) per-edge-infos)
+        (map
+          (partial apply edge-view)
+          per-edge-infos)
 
-      (for [uuid uuids]
-        (let [node (uuid nodes)
-              [x y] (first (coords-from-layers uuid layers))] ;; use first because we assume there is only 1 of each node
-          (node-view (+ graph-width (* -1 spacing-right x))
-                     (+ graph-height (* -1 spacing-down y))
-                     node
-                     uuid)))]
-     (let [edge-input-infos  (map (fn [edge-freq-info] (apply #(vector
-                                                                 (* 0.5 (+ %1 %3))
-                                                                 (* 0.5 (+ %2 %4))
-                                                                 %6
-                                                                 graph-height
-                                                                 graph-width) edge-freq-info))
-                                  per-freq-infos)]
-       (map #(apply edge-input-view %)
-            (map #(concat %1 [%2]) edge-input-infos (keys edge-freqs))))])))
+        (for [uuid uuids]
+          (let [node (uuid nodes)
+                [x y] (first (coords-from-layers uuid layers))] ;; use first because we assume there is only 1 of each node
+            (node-view (+ graph-width (* -1 spacing-right x))
+                       (+ graph-height (* -1 spacing-down y))
+                       node
+                       uuid)))]
+       (let [edge-input-infos  (map (fn [edge-freq-info] (apply #(vector
+                                                                   (+ (* 0.88 %1) (* 0.12 %3))
+                                                                   (+ (* 0.88 %2) (* 0.12 %4))
+                                                                   %6
+                                                                   graph-height
+                                                                   graph-width) edge-freq-info))
+                                    per-freq-infos)]
+         (map #(apply edge-input-view %)
+              (map #(conj %1 %2) edge-input-infos (keys edge-freqs))))])))
 
 (defn focus-view []
   (do (prn "rendering focus view")
     (let [current-node  (first @node-history-atom)
-        code (get-in @node-defs-atom [current-node])
-        {nodes :nodes
-         edges :edges}  (if current-node
-                          (parse-defn-let (try-read code))
-                          nil)]
-    [:div {:style {
-                    :position "absolute"
-                    :right 10
-                    :top 0
-                    :height "100%"
-                    :width "48%"}}
-     [:div {:style {:position "absolute"
-                    :left 10
-                    :top 10}}
-      (button-view "back" #(prev-graph))]
-     [:p {:style {:position "absolute"
-                  :top 50
-                  :left 20
-                  :font-size 30
-                  :font-family "Ubuntu"}} current-node]
-     (nodes-dropdown)
-     ;;      [:div {:style {:position "absolute"
-     ;;                     :left 10
-     ;;                     :bottom 10}}
-     ;;       (button-view "+" #())]
-     (graph-view nodes edges)])))
+          ;;               code (get-in @node-defs-atom [current-node :code])
+          {nodes :nodes
+           edges :edges
+           code :code}  (when current-node (@node-defs-atom current-node))]
+      [:div {:style {
+                      :position "absolute"
+                      :right 10
+                      :top 0
+                      :height "100%"
+                      :width "48%"}}
+       [:div {:style {:position "absolute"
+                      :left 10
+                      :top 10}}
+        (button-view "back" #(prev-graph))]
+       [:p {:style {:position "absolute"
+                    :top 50
+                    :left 20
+                    :font-size 30
+                    :font-family "Ubuntu"}} current-node]
+       (nodes-dropdown)
+       (graph-view nodes edges)])))
 
 
 (defn editor []
   (reagent/create-class
-         {:reagent-render         (fn [] @cm-atom [:div {:id "cm-wrapper"
-                                                         :style {:position "absolute"
-                                                                  :top 0
-                                                                 :left 0
-                                                                  :height "100%"
-                                                                 :width "50%"
-                                                                 :border-right "solid grey 2px"}
-                                                         }])
-          :component-did-update   (update-editor "cm-wrapper")
-          :component-did-mount    (update-editor "cm-wrapper")}))
+    {:reagent-render         (fn [] @cm-atom [:div {:id "cm-wrapper"
+                                                    :style {:position "absolute"
+                                                            :top 0
+                                                            :left 0
+                                                            :height "100%"
+                                                            :width "50%"
+                                                            :border-right "solid grey 2px"}
+                                                    }])
+     :component-did-update   (update-editor "cm-wrapper")
+     :component-did-mount    (update-editor "cm-wrapper")}))
 
 ;; (defn all-view []
 ;;   [:div
