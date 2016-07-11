@@ -8,7 +8,6 @@
                                  find-indices first? firstx evalx wrap invert-noninj]]
             ))
 
-
 (defn literal? [form]
     (cond
       (not (sequential? form)) true ;; obviously

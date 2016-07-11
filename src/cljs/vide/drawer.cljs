@@ -92,3 +92,16 @@
         n-layers (count init-layers)
         best-layers (sort-layers-from (dec n-layers) init-layers all-edges)]
     best-layers))
+
+(defn find-hltd [edges hltd]
+  (let [not-hltd (remove (set hltd) edges)
+         input-edges (filter #(not-any? #{(:start %)} (map :end not-hltd)) not-hltd )
+;;         hltable-edges (remove (set input-edges) init-not-hltd)
+        ]
+    (loop [not-hltd not-hltd
+           hltd hltd]
+      (let [poss-add-hltd (filter #(not-any? #{(:start %)} (map :end not-hltd)) not-hltd)
+            add-hltd (remove (set input-edges) poss-add-hltd)]
+        (if (empty? add-hltd)
+          hltd
+          (recur (remove #{add-hltd} not-hltd) (concat hltd add-hltd)))))))
