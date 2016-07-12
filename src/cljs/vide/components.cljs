@@ -166,7 +166,7 @@
   (let [arrowhead-x (+ (* 0.4 x1) (* 0.6 x2))
         arrowhead-y (+ (* 0.4 y1) (* 0.6 y2))
         th (+ 3.1416 (.atan js/Math (/ (- x2 x1) (- y2 y1))))
-        col (if value "blue" arrow-fill)]
+        col (if value "#00ffff" arrow-fill)]
     [:g {:key (gensym (str "edge-"))
          }
      [:line {:x1 x1

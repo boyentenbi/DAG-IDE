@@ -103,6 +103,7 @@
              poss-add-hltd  (into {}
                                   (filter #(not-any? #{(:start (first %))} (map :end (keys not-hltd))) not-hltd))
             add-hltd (apply (partial dissoc poss-add-hltd)  input-edges)
+;;             active-nodes (distinc)
             with-vals (zipmap (keys add-hltd) (repeat (count add-hltd) 1)) ;; this is the part where you calculate the values and assoc them in
             ]
         (if (empty? add-hltd)
