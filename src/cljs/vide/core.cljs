@@ -9,7 +9,7 @@
               [vide.helpers :refer [try-read do-prn drop-nth find-indices first? firstx evalx]]
               [vide.drawer :refer [childless? get-best-layers coords-from-layers]]
               [vide.parser :refer [parse-defn-let]]
-              [vide.components :refer [editor focus-view next-graph load-node-defs]]
+              [vide.components :refer [editor-view focus-view next-graph load-node-defs]]
               [cljs.pprint :refer [pprint]]
               ))
 
@@ -18,7 +18,7 @@
 
 (defn home-page []
     [:div
-     [editor]
+     [editor-view]
      (focus-view)])
 
 (defn about-page []

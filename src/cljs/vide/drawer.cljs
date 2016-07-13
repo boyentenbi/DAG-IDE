@@ -2,46 +2,48 @@
   (:require
     [vide.helpers :refer [do-prn drop-nth find-indices first? firstx evalx]]))
 
-(defn childless? [edges uuid]
-  (nil? (some #(= uuid (:start %)) edges)))
+(defn childless? [uuid subgraph]
+  (not-any?  #{uuid} (->> subgraph
+                          (map :edges-in)
+                          (apply concat)
+                          (map :start))))
 
-
-(defn find-childless [uuids edges]
-  (filter #(childless? edges %) uuids))
+(defn find-childless [graph-remaining]
+  (filter #(childless? % (vals graph-remaining)) (keys graph-remaining)))
 
 (defn has-child-in [uuid layer edges]
   (let [possible-edges (map #(hash-map :start uuid :end %) layer)
         unlabelled-edges (map #(dissoc % :label) edges)]
     (some (set unlabelled-edges) possible-edges)))
 
-(defn get-layer-idx [uuid layers edges checking-idx]
+(defn get-layer-idx [uuid layers checking-idx graph]
   (if (= checking-idx -1)
     0
-    (if (has-child-in uuid (nth layers checking-idx) edges)
-      (inc checking-idx)
-      (recur uuid layers edges (dec checking-idx)))))
+    (if (childless? uuid (map graph (nth layers checking-idx)))
+      (recur uuid layers (dec checking-idx) graph)
+      (inc checking-idx))))
 
 ;; Sort the nodes into layers recursively: first remove a node which has no children in
 ;; 'remaining-uuids' (by checking 'remaining-edges'), then remove all edges it is the end
 ;; node of from 'remaining-edges'. Place the node in a new layer if it has children in the
 ;; uppermost layer. If it doesn't, descend layers until we reach one above a layer in which
 ;; it does have children, or the 0th layer.
-(defn get-layers-inner [remaining-uuids layers remaining-edges all-edges]
-  (if (empty? remaining-uuids)
+(defn get-layers-inner [graph-remaining layers graph]
+  (if (empty? graph-remaining)
     layers
-    (let [uuid (first (find-childless remaining-uuids remaining-edges))
+    (let [uuid (first (find-childless graph-remaining))
           n-layers (count layers)
-          layer-idx (get-layer-idx uuid layers all-edges (dec n-layers))
-          unsorted-new (remove #{uuid} remaining-uuids)
+          layer-idx (get-layer-idx uuid layers (dec n-layers) graph)
+          graph-remaining-new (dissoc graph-remaining uuid)
           layers-new (if (= layer-idx n-layers)
                        (conj layers [uuid])
-                       (assoc layers layer-idx (conj (nth layers layer-idx) uuid)))
-          edges-new (vec (remove #(= (:end %) uuid) remaining-edges))]
-      (recur unsorted-new layers-new  edges-new all-edges))))
+                       (update layers layer-idx #(conj % uuid)))
+          ]
+      (recur graph-remaining-new layers-new graph))))
 
 ;; Wrap the recursive 'get-layers-inner' function so it uses less args, and take nodes instead of idxs
-(defn get-layers [uuids all-edges]
-  (get-layers-inner uuids [] all-edges all-edges))
+(defn get-layers [graph]
+ (do-prn (vec (reverse (get-layers-inner graph [] graph)))))
 
 ;; Get the coordinates of a node given the layers and the layer index
 (defn coords-from-layer-idx [uuid layers layer-idx]
@@ -66,34 +68,35 @@
                 (for [x mylist]
                   (map #(conj % x) (get-perms (remove-one x mylist))))))))
 
-(defn get-edge-cost [edge layers]
-  (let [{start :start end :end label :label} edge
-        [x1 y1] (apply concat (coords-from-layers start layers))
-        [x2 y2] (apply concat (coords-from-layers end layers))
-        x-diff (- x2 x1)
-        cost (* x-diff x-diff)]
+(defn get-node-cost [node layers]
+  (let [[end {node-name :name edges-in :edges-in}] node
+        end-x (first (apply concat (coords-from-layers end layers)))
+        start-xs (map #(first (apply concat (coords-from-layers % layers))) (map :start edges-in))
+        x-diffs (map #(- end-x %) start-xs)
+        sq-x-diffs (map #(* % %) x-diffs)
+        cost (reduce + sq-x-diffs)]
     cost))
-(defn get-total-cost [layers edges]
-  (reduce + (map #(get-edge-cost % layers) edges)))
 
+(defn get-graph-cost [layers graph]
+  (reduce + (map #(get-node-cost % layers) graph)))
 
 ;; Greedily search through orderings of each layer to minimize a simple square distance
-(defn sort-layers-from [n layers edges]
+(defn sort-layers-from [n layers graph]
   (if (<= n 0)
     layers
     (let [layer (nth layers n)
           perms (get-perms layer)
           possible-layers (map #(assoc layers n %) perms)
-          best-layers (apply (partial min-key #(get-total-cost % edges)) possible-layers)]
-      (recur (dec n) best-layers edges))))
+          best-layers (apply (partial min-key #(get-graph-cost % graph)) possible-layers)]
+      (recur (dec n) best-layers graph))))
 
-(defn get-best-layers [uuids all-edges]
-  (let [init-layers (get-layers uuids all-edges)
+(defn get-best-layers [graph]
+  (let [init-layers (get-layers graph)
         n-layers (count init-layers)
-        best-layers (sort-layers-from (dec n-layers) init-layers all-edges)]
+        best-layers (sort-layers-from (dec n-layers) init-layers graph)]
     best-layers))
 
-(defn get-hltd [edges hltd]
+(defn get-hltd [edges hltd ]
   (let [hlts (merge (zipmap edges (repeat (count edges) nil)) hltd)
         input-edges  (filter #(not-any? #{(:start %)} (map :end edges)) edges)
         ;;         hltable-edges (remove (set input-edges) init-not-hltd)
