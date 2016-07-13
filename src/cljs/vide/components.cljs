@@ -93,7 +93,14 @@
         (swap! node-defs-atom #(assoc-in % [current-node :code] new-text))
         (when evald (swap! node-defs-atom #(assoc-in % [current-node :fn] evald)))
         (when-let [graph (parse-defn-let (try-read new-text))]
-            (swap! node-defs-atom #(assoc-in % [current-node :graph] graph))))
+            (do
+              (swap! node-defs-atom #(assoc-in % [current-node :graph] graph))
+              (doseq [node-name (map :name (vals graph))]
+                (when-not #(some #{node-name} %) (keys @node-defs-atom)
+                  (swap! node-defs-atom #(assoc-in % [node-name :fn] (try-read node-name)))
+                  (prn "added " node-name " to node-defs"))
+                ))
+          ))
         ;;                                         (reset! node-defs-atom
         ;;                                                 (rename-keys new-node-defs {current-node (str func-name)}))
         ;;                                         (reset! node-history-atom new-node-history))
@@ -185,7 +192,10 @@
                :y (+ (* -1 0.15 font-size) arrowhead-y)
                :style {:font-size font-size
                        :font-family "Ubuntu"
-                       :color col}} (str label " " value)])]))
+                       :color col}}
+;;         (str label " " value)
+        label
+        ])]))
 
 (defn button-view [text callback]
   [:button {:style {:position "absolute"
@@ -267,10 +277,10 @@
                (* spacing-down)
 ;;                (+ graph-height)
                )
-        value (activated :start)]
+        value (activated start)]
     [x1 y1 x2 y2 freq label value]))
 
-(defn edge-input-view [x y edge-name graph-height graph-width edge]
+(defn edge-input-view [x y edge-name value graph-height graph-width edge]
   (let [graph-view  (js/document.getElementById "graph-view")
         parent-height (.-clientHeight graph-view)
         parent-width (.-clientWidth graph-view)
@@ -290,6 +300,7 @@
                       :height (* ratio-h 3)
                       ;;                       :position "absolute"
                       }
+              :value value
               :on-change (fn [this]
                            (swap!
                              given-values-atom
@@ -298,7 +309,8 @@
      ))
 
 (defn graph-view [graph]
-    (let [uuids (keys graph)
+    (do (prn "rendering graph view")
+      (let [uuids (keys graph)
           layers (get-best-layers graph)
           graph-height (* spacing-down (count layers))
           graph-width (* spacing-right (or (apply max (map count layers)) 0))
@@ -346,13 +358,14 @@
                                                                    (+ (* 0.88 %1) (* 0.12 %3))
                                                                    (+ (* 0.88 %2) (* 0.12 %4))
                                                                    %6
+                                                                   %7
                                                                    graph-height
                                                                    graph-width) edge-freq-info))
                                     per-freq-infos)]
           (map #(apply edge-input-view %)
               (map #(conj %1 %2) edge-input-infos (keys edge-freqs)))
          )
-       ]))
+       ])))
 
 (defn focus-view []
     (do (prn "rendering focus view")

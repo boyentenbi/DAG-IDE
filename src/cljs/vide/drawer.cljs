@@ -98,15 +98,19 @@
 
 (defn get-activated [graph node-activations node-defs-atom]
   (let [node-activations-new  (->>  (apply (partial dissoc graph) (keys node-activations))
-                                           (map (fn [[end {end-name :name edges-in :edges-in}]]
-                                                  (let [parent-uuids (map :start edges-in)]
-                                                    (when (and (seq parent-uuids)
-                                                               (every? node-activations parent-uuids))
-                                                      (let [func (if-let [user-node (@node-defs-atom end-name)]
-                                                                   (:fn user-node)
-                                                                    (try-read end-name))
-                                                            args  (map node-activations parent-uuids)]
-                                                        [end (do-prn (try-eval (cons func args)))])))))
+                                    (map (fn [[end {end-name :name edges-in :edges-in}]]
+                                           (let [parent-uuids (map :start edges-in)]
+                                             (when (and (seq parent-uuids)
+                                                        (every? node-activations parent-uuids))
+                                               (let [func (if-let [user-node (@node-defs-atom end-name)]
+                                                            (:fn user-node)
+                                                            (let [func (try-read end-name)]
+                                                              (swap! node-defs-atom #(assoc-in % [end-name :fn] func))
+                                                              (prn "added " end-name " to node-defs")
+                                                              func))
+                                                     args  (map node-activations parent-uuids)]
+
+                                                 [end (try-eval (cons func args))])))))
 
                                     (remove nil?)
                                     (into {})
@@ -116,12 +120,12 @@
       (recur graph node-activations-new node-defs-atom)
       )))
 
-    ;;         hlts (merge (zipmap edges (repeat (count edges) nil)) hltd)
-    ;;         input-edges  (filter #(not-any? #{(:start %)} (map :end edges)) edges)
-    ;;         ;;         hltable-edges (remove (set input-edges) init-not-hltd)
-    ;;         ]
-    ;;     (loop [hlts hlts]
-    ;;       (let [not-hltd (into {} (filter #(nil? (val %)) hlts ))
+;;         hlts (merge (zipmap edges (repeat (count edges) nil)) hltd)
+;;         input-edges  (filter #(not-any? #{(:start %)} (map :end edges)) edges)
+;;         ;;         hltable-edges (remove (set input-edges) init-not-hltd)
+;;         ]
+;;     (loop [hlts hlts]
+;;       (let [not-hltd (into {} (filter #(nil? (val %)) hlts ))
 ;;              poss-add-hltd  (into {}
 ;;                                   (filter #(not-any? #{(:start (first %))} (map :end (keys not-hltd))) not-hltd))
 ;;             add-hltd (apply (partial dissoc poss-add-hltd)  input-edges)
