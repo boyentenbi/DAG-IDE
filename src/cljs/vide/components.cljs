@@ -5,8 +5,8 @@
             [cljs.reader :refer [read-string]]
             [clojure.set :refer [rename-keys]]
 ;;             [slurp.core :include-macros true :refer [slurp]]
-            [vide.helpers :refer [try-read do-prn drop-nth find-indices first? firstx evalx]]
-            [vide.drawer :refer [childless? get-best-layers coords-from-layers get-hltd]]
+            [vide.helpers :refer [try-eval try-read do-prn drop-nth find-indices first? firstx]]
+            [vide.drawer :refer [childless? get-best-layers coords-from-layers get-activated]]
             [vide.parser :refer [parse-defn-let]]
             ))
 ;; ----------------------------------------style params----------------------------------------------
@@ -36,9 +36,9 @@
 (def node-defs-atom (atom {}))
 (def pretend-code
   (str
-    "(defn double [x] (let [y (+ x x)] y))"
+    "(defn square [x] (let [y (* x x)] y))"
     "(defn inc-vec [myvec] (let [incd (map inc myvec)] incd))"
-    "(defn double-vec [myvec] (let [doubled (map double myvec)] doubled))"
+    "(defn square-vec [myvec] (let [squared (map square myvec)] squared))"
     ;;     "(defn dupe [x] (let [duped [x x]] duped))"
     "(defn incincinc [x] (let [y (+ x x) \n
     a (inc y) \n
@@ -51,11 +51,16 @@
         defn-let-forms (filter #(= 'defn (first %)) forms) ;; for now this should be all there is
         names (map #(str (second %)) defn-let-forms)
         codes (map str defn-let-forms) ;;that name lol
-        defs (map #(hash-map :code %) codes)
+        compiled-codes  (map try-read codes)
+        evald-codes (map try-eval (map #(cons 'fn %) (map #(drop 1 %) compiled-codes)))
+        defs (map #(hash-map :code %1 :fn %2) codes
+                  evald-codes
+                  )
         node-defs (zipmap names defs)]
-    (reset! node-defs-atom node-defs)))
+      (reset! node-defs-atom node-defs)))
 
 (load-node-defs)
+;; (do-prn ((get-in @node-defs-atom ["square" :fn]) 2))
 
 ;; ---------------------------------------- node history ----------------------------------------------
 
@@ -83,8 +88,10 @@
             ;;                                        (drop-last)
             ;;                                        (vec)
             ;;                                        (conj (str func-name)))
+            evald (try-eval (cons 'fn (drop 1  compiled)))
             ]
         (swap! node-defs-atom #(assoc-in % [current-node :code] new-text))
+        (when evald (swap! node-defs-atom #(assoc-in % [current-node :fn] evald)))
         (when-let [graph (parse-defn-let (try-read new-text))]
             (swap! node-defs-atom #(assoc-in % [current-node :graph] graph))))
         ;;                                         (reset! node-defs-atom
@@ -108,7 +115,7 @@
     (do
     (swap! node-history-atom #(conj (remove #{node} %) node))
     (.setValue @cm-atom (get-in @node-defs-atom [node :code]))
-      (prn @node-history-atom)))
+       @node-history-atom))
 
 (defn prev-graph []
   (do
@@ -220,7 +227,7 @@
             :text-decoration "none"
             :display "inline-block"
             :font-family "Ubuntu"
-;;             :width "40%"
+            ;;             :width "40%"
             :font-size "14px"
             :padding "5px 16px"}}
 
@@ -240,7 +247,7 @@
                               hltd))]
     info-tuples))
 
-(defn get-freq-info [hltd-edges edge-freq layers graph-height graph-width]
+(defn get-freq-info [activated edge-freq layers graph-height graph-width]
   (let [[{start :start end :end label :label} freq] edge-freq
         [x1-rel y1-rel] (first (coords-from-layers start layers))
         [x2-rel y2-rel] (first (coords-from-layers end layers))
@@ -260,8 +267,7 @@
                (* spacing-down)
 ;;                (+ graph-height)
                )
-        value (get-in hltd-edges [(first edge-freq)]
-                      )]
+        value (activated :start)]
     [x1 y1 x2 y2 freq label value]))
 
 (defn edge-input-view [x y edge-name graph-height graph-width edge]
@@ -287,12 +293,11 @@
               :on-change (fn [this]
                            (swap!
                              given-values-atom
-                             #(assoc % edge
+                             #(assoc % (:start edge)
                                 (try-read (-> this .-target .-value)))))}]
      ))
 
 (defn graph-view [graph]
-  (do (prn "rendering graph view")
     (let [uuids (keys graph)
           layers (get-best-layers graph)
           graph-height (* spacing-down (count layers))
@@ -303,10 +308,9 @@
                                       (assoc start-and-label :end end))
                                    edges-in))  graph))
           edge-freqs  (frequencies edges)
-          hltd-edges  (get-hltd edges  @given-values-atom)
-          per-freq-infos (map #(get-freq-info hltd-edges % layers graph-height graph-width) edge-freqs)
+          activated  (get-activated graph  @given-values-atom  node-defs-atom)
+          per-freq-infos (map #(get-freq-info activated % layers graph-height graph-width) edge-freqs)
           per-edge-infos (apply concat (map #(apply space-edges %) per-freq-infos))
-
           ;;         _ (.clientHeight (js/document.getElementById ))
           ]
       [:div {:id "graph-view"
@@ -345,13 +349,14 @@
                                                                    graph-height
                                                                    graph-width) edge-freq-info))
                                     per-freq-infos)]
-         (map #(apply edge-input-view %)
-              (map #(conj %1 %2) edge-input-infos (keys edge-freqs))))
-       ])))
+          (map #(apply edge-input-view %)
+              (map #(conj %1 %2) edge-input-infos (keys edge-freqs)))
+         )
+       ]))
 
 (defn focus-view []
-  (do (prn "rendering focus view")
-    (let [current-node  (first @node-history-atom)
+    (do (prn "rendering focus view")
+      (let [current-node  (first @node-history-atom)
           ;;               code (get-in @node-defs-atom [current-node :code])
           graph  (when current-node (get-in @node-defs-atom [current-node :graph]))]
       [:div {:style {
@@ -374,7 +379,8 @@
                      :font-size 30
                      :font-family "Ubuntu"}} current-node]]
        [graph-view graph]
-       ])))
+       ]
+      )))
 
 
 (defn editor-view []

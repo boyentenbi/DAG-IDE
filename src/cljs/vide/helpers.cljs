@@ -1,10 +1,11 @@
 (ns vide.helpers
   (:require [clojure.walk :as w]
             [cljs.reader :refer [read-string]]
-            [cljs.js :refer [eval empty-state js-eval]]))
+            [cljs.js :refer [eval empty-state js-eval]]
+            [cljs.pprint :refer [pprint]]))
 
 (defn do-prn [a]
-  (do (prn a) a))
+  (do (pprint a) a))
 
 (defn drop-nth [myvec n]
   (vec (concat (subvec myvec 0 n) (subvec myvec (inc n)))))
@@ -26,7 +27,7 @@
         {:eval       js-eval
          :source-map true
          :context    :expr}
-        (fn [x] (:value x))))
+        (fn [result] (:value result))))
 
 
 (defn eval-str [s]
@@ -62,8 +63,10 @@
 (defn try-read [string]
   (try
     (read-string string)
-    (catch js/Error je (do
-                         (prn (str "caught js exception: " je))
-                         nil))
+    (catch js/Error je (prn (str "caught js exception in try-read: " je)))
     ))
-
+(defn try-eval [form]
+    (try
+    (evalx form)
+;;     (catch Exception e (prn (str "caught cljs exception : " e)))
+    (catch js/Error je (prn (str "caught js exception in try-eval: " je)))))

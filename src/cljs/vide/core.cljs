@@ -19,7 +19,8 @@
 (defn home-page []
     [:div
      [editor-view]
-     (focus-view)])
+     (focus-view)
+     ])
 
 (defn about-page []
   [:div [:h2 "About vide"]

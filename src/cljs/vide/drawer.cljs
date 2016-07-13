@@ -1,6 +1,6 @@
 (ns vide.drawer
   (:require
-    [vide.helpers :refer [do-prn drop-nth find-indices first? firstx evalx]]))
+    [vide.helpers :refer [eval-str try-read try-eval do-prn drop-nth find-indices first? firstx evalx]]))
 
 (defn childless? [uuid subgraph]
   (not-any?  #{uuid} (->> subgraph
@@ -43,7 +43,7 @@
 
 ;; Wrap the recursive 'get-layers-inner' function so it uses less args, and take nodes instead of idxs
 (defn get-layers [graph]
- (do-prn (vec (reverse (get-layers-inner graph [] graph)))))
+ (vec (reverse (get-layers-inner graph [] graph))))
 
 ;; Get the coordinates of a node given the layers and the layer index
 (defn coords-from-layer-idx [uuid layers layer-idx]
@@ -96,19 +96,38 @@
         best-layers (sort-layers-from (dec n-layers) init-layers graph)]
     best-layers))
 
-(defn get-hltd [edges hltd ]
-  (let [hlts (merge (zipmap edges (repeat (count edges) nil)) hltd)
-        input-edges  (filter #(not-any? #{(:start %)} (map :end edges)) edges)
-        ;;         hltable-edges (remove (set input-edges) init-not-hltd)
-        ]
-    (loop [hlts hlts]
-      (let [not-hltd (into {} (filter #(nil? (val %)) hlts ))
-             poss-add-hltd  (into {}
-                                  (filter #(not-any? #{(:start (first %))} (map :end (keys not-hltd))) not-hltd))
-            add-hltd (apply (partial dissoc poss-add-hltd)  input-edges)
-;;             active-nodes (distinc)
-            with-vals (zipmap (keys add-hltd) (repeat (count add-hltd) 1)) ;; this is the part where you calculate the values and assoc them in
-            ]
-        (if (empty? add-hltd)
-          hlts
-          (recur (merge hlts with-vals)))))))
+(defn get-activated [graph node-activations node-defs-atom]
+  (let [node-activations-new  (->>  (apply (partial dissoc graph) (keys node-activations))
+                                           (map (fn [[end {end-name :name edges-in :edges-in}]]
+                                                  (let [parent-uuids (map :start edges-in)]
+                                                    (when (and (seq parent-uuids)
+                                                               (every? node-activations parent-uuids))
+                                                      (let [func (if-let [user-node (@node-defs-atom end-name)]
+                                                                   (:fn user-node)
+                                                                    (try-read end-name))
+                                                            args  (map node-activations parent-uuids)]
+                                                        [end (do-prn (try-eval (cons func args)))])))))
+
+                                    (remove nil?)
+                                    (into {})
+                                    (merge node-activations))]
+    (if (= node-activations node-activations-new)
+      node-activations
+      (recur graph node-activations-new node-defs-atom)
+      )))
+
+    ;;         hlts (merge (zipmap edges (repeat (count edges) nil)) hltd)
+    ;;         input-edges  (filter #(not-any? #{(:start %)} (map :end edges)) edges)
+    ;;         ;;         hltable-edges (remove (set input-edges) init-not-hltd)
+    ;;         ]
+    ;;     (loop [hlts hlts]
+    ;;       (let [not-hltd (into {} (filter #(nil? (val %)) hlts ))
+;;              poss-add-hltd  (into {}
+;;                                   (filter #(not-any? #{(:start (first %))} (map :end (keys not-hltd))) not-hltd))
+;;             add-hltd (apply (partial dissoc poss-add-hltd)  input-edges)
+;; ;;             active-nodes (distinc)
+;;             with-vals (zipmap (keys add-hltd) (repeat (count add-hltd) 1)) ;; this is the part where you calculate the values and assoc them in
+;;             ]
+;;         (if (empty? add-hltd)
+;;           hlts
+;;           (recur (merge hlts with-vals)))))))
