@@ -13,13 +13,12 @@
 
 (enable-console-print!)
 
-(def scale 100)
-(def node-h (* 0.09 scale))
-(def node-w (* 0.12 scale))
-(def offset-right (* 0.4 scale))
-(def offset-down (* 1 scale))
-(def spacing-right (* 0.22 scale))
-(def spacing-down (* 0.18 scale))
+(def node-h 9)
+(def node-w 12)
+(def offset-right 4)
+(def offset-do 1)
+(def spacing-right 22)
+(def spacing-down 18)
 (def font-size 3)
 (def same-edge-spacing (* 0.3 node-w))
 (def arrowhead-angle (/ 6.283 20))
@@ -101,28 +100,28 @@
                   (prn "added " node-name " to node-defs"))
                 ))
           ))
-        ;;                                         (reset! node-defs-atom
-        ;;                                                 (rename-keys new-node-defs {current-node (str func-name)}))
-        ;;                                         (reset! node-history-atom new-node-history))
-        )))
+      ;;                                         (reset! node-defs-atom
+      ;;                                                 (rename-keys new-node-defs {current-node (str func-name)}))
+      ;;                                         (reset! node-history-atom new-node-history))
+      )))
 (.on @cm-atom
      "change"
      (on-cm-update))
 (.setSize @cm-atom "100%" "100%" )
 (.refresh @cm-atom)
 
-  ;; ---------------------------------------- given edge values ----------------------------------------------
+;; ---------------------------------------- given edge values ----------------------------------------------
 
-  (def given-values-atom (atom {}))
+(def given-values-atom (atom {}))
 
-  ;; -----------------------------------------functions---------------------------------------------
+;; -----------------------------------------functions---------------------------------------------
 
 
-  (defn next-graph [node]
-    (do
+(defn next-graph [node]
+  (do
     (swap! node-history-atom #(conj (remove #{node} %) node))
     (.setValue @cm-atom (get-in @node-defs-atom [node :code]))
-       @node-history-atom))
+    @node-history-atom))
 
 (defn prev-graph []
   (do
@@ -154,7 +153,7 @@
    [:text {:x (+ x (* 0.35 font-size))
            :y (+ y (* 1.15 font-size))
            :style {:fill node-text
-                    :font-size font-size
+                   :font-size font-size
                    :font-family "Ubuntu"}}
     node]])
 
@@ -176,9 +175,11 @@
   (let [arrowhead-x (+ (* 0.4 x1) (* 0.6 x2))
         arrowhead-y (+ (* 0.4 y1) (* 0.6 y2))
         th (+ 3.1416 (.atan js/Math (/ (- x2 x1) (- y2 y1))))
-        col (if value "#00ffff" arrow-fill)]
-    [:g {:key (gensym (str "edge-"))
-         }
+        word-len (* -1 font-size (count label))
+        col (if value "#00ffff" arrow-fill)
+        id (gensym (str "edge-"))]
+    [:g {:key id
+         :id id}
      [:line {:x1 x1
              :y1 y1
              :x2 x2
@@ -188,12 +189,12 @@
                      :opacity 1}}]
      (arrowhead-view arrowhead-x arrowhead-y th col)
      (when label
-       [:text {:x (-  arrowhead-x (+ (* 0.45 font-size (count label)) (*  font-size)))
-               :y (+ (* -1 0.15 font-size) arrowhead-y)
+       [:text {:x (+ word-len arrowhead-x)
+               :y (+ arrowhead-y)
                :style {:font-size font-size
                        :font-family "Ubuntu"
                        :color col}}
-;;         (str label " " value)
+        ;;         (str label " " value)
         label
         ])]))
 
@@ -280,24 +281,24 @@
         value (activated start)]
     [x1 y1 x2 y2 freq label value]))
 
-(defn edge-input-view [x y edge-name value graph-height graph-width edge]
+(defn edge-input-view [x y value graph-height graph-width edge]
   (let [graph-view  (js/document.getElementById "graph-view")
         parent-height (.-clientHeight graph-view)
         parent-width (.-clientWidth graph-view)
-        ratio-w (/ parent-width (+ graph-width))
-        ratio-h (/ parent-height (+ graph-height))
+        ratio-w (/ parent-width graph-width)
+        ratio-h (/ parent-height graph-height)
         ]
 
      [:input {:key (gensym "edge-input-")
               :type "text"
               :style {:position "absolute"
 ;;                       :z-index 1
-                      :left  (* (- x (+ (* -0.20 node-w) (* 0.5 (- node-w spacing-right)))) ratio-w)
-                      :top   (* (- y (+ (* -0.15 node-h) (* 0.5 (- node-h spacing-down)))) ratio-h)
+                      :left  (* (- x (+  (* 0.5 (- node-w spacing-right)))) ratio-w)
+                      :top   (* (- y (+  (* 0.5 (- node-h spacing-down)))) ratio-h)
                       ;;                    :display "inline"
                       :font-size (* font-size ratio-h)
-                      :width (* ratio-w 3)
-                      :height (* ratio-h 3)
+;;                       :width (* ratio-w (* 0.3 node-w))
+;;                       :height (* ratio-h font-size 0.5)
                       ;;                       :position "absolute"
                       }
               :value value
@@ -305,19 +306,18 @@
                            (swap!
                              given-values-atom
                              #(assoc % (:start edge)
-                                (try-read (-> this .-target .-value)))))}]
-     ))
+                                (try-read (-> this .-target .-value)))))}]))
 
 (defn graph-view [graph]
-    (do (prn "rendering graph view")
-      (let [uuids (keys graph)
+  (do (prn "rendering graph view")
+    (let [uuids (keys graph)
           layers (get-best-layers graph)
           graph-height (* spacing-down (count layers))
           graph-width (* spacing-right (or (apply max (map count layers)) 0))
           edges (apply concat
                        (map (fn [[end {node-name :name edges-in :edges-in}]]
                               (map (fn [start-and-label]
-                                      (assoc start-and-label :end end))
+                                     (assoc start-and-label :end end))
                                    edges-in))  graph))
           edge-freqs  (frequencies edges)
           activated  (get-activated graph  @given-values-atom  node-defs-atom)
@@ -326,27 +326,19 @@
           ;;         _ (.clientHeight (js/document.getElementById ))
           ]
       [:div {:id "graph-view"
-             :style {
-                      :height "85%"
-                      :position "relative"
-;;                      :padding "50px 0px 50px 0px"
+             :style {:height "85%"
+                     :position "relative"
+                     }}
 
-                      }}
        [:svg
         {:width "100%"
          :height "100%"
          :view-box (str  (* 0.5 (- node-w spacing-right))  " "
-                        (* 0.5 (- node-h spacing-down)) " "
-                        graph-width " "
-                        graph-height)
-         :style {
-;;                   :z-index -1
-                 :position "absolute"}}
-
-        (map
-          (partial apply edge-view)
-          per-edge-infos)
-
+                         (* 0.5 (- node-h spacing-down)) " "
+                         graph-width " "
+                         graph-height)
+         :style {:position "absolute"}}
+        (map (partial apply edge-view) per-edge-infos)
         (for [uuid uuids]
           (let [node-name (get-in graph [uuid :name])
                 [x y] (first (coords-from-layers uuid layers))] ;; use first because we assume there is only 1 of each node
@@ -354,26 +346,25 @@
                        (* spacing-down y)
                        node-name
                        uuid)))]
-       (let [edge-input-infos  (map (fn [edge-freq-info] (apply #(vector
-                                                                   (+ (* 0.88 %1) (* 0.12 %3))
-                                                                   (+ (* 0.88 %2) (* 0.12 %4))
-                                                                   %6
-                                                                   %7
-                                                                   graph-height
-                                                                   graph-width) edge-freq-info))
-                                    per-freq-infos)]
-          (map #(apply edge-input-view %)
-              (map #(conj %1 %2) edge-input-infos (keys edge-freqs)))
-         )
-       ])))
+
+       (let [edge-input-infos (map (fn [[x1 y1 x2 y2 freq label value]]
+                                     [(+ (* 0.5 x1) (* 0.5 x2))
+                                      (+ (* 0.5 y1) (* 0.5 y2))
+                                      value
+                                      graph-height
+                                      graph-width]) per-freq-infos)]
+         (map #(apply edge-input-view %)
+              (map (fn [info edge] (conj info edge))
+                   edge-input-infos
+                   (keys edge-freqs))))])))
 
 (defn focus-view []
-    (do (prn "rendering focus view")
-      (let [current-node  (first @node-history-atom)
+  (do (prn "rendering focus view")
+    (let [current-node  (first @node-history-atom)
           ;;               code (get-in @node-defs-atom [current-node :code])
           graph  (when current-node (get-in @node-defs-atom [current-node :graph]))]
       [:div {:style {
-;;                       :display "block"
+                      ;;                       :display "block"
                       :position "absolute"
                       :right 0
                       :top 0
