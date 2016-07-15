@@ -37,8 +37,7 @@
           graph-remaining-new (dissoc graph-remaining uuid)
           layers-new (if (= layer-idx n-layers)
                        (conj layers [uuid])
-                       (update layers layer-idx #(conj % uuid)))
-          ]
+                       (update layers layer-idx #(conj % uuid)))]
       (recur graph-remaining-new layers-new graph))))
 
 ;; Wrap the recursive 'get-layers-inner' function so it uses less args, and take nodes instead of idxs
@@ -104,14 +103,12 @@
                                                         (every? node-activations parent-uuids))
                                                (let [func (if-let [user-node (@node-defs-atom end-name)]
                                                             (:fn user-node)
-                                                            (let [func (try-read end-name)]
+                                                            (when-let [func  (try-read end-name)]
                                                               (swap! node-defs-atom #(assoc-in % [end-name :fn] func))
                                                               (prn "added " end-name " to node-defs")
                                                               func))
                                                      args  (map node-activations parent-uuids)]
-
                                                  [end (try-eval (cons func args))])))))
-
                                     (remove nil?)
                                     (into {})
                                     (merge node-activations))]

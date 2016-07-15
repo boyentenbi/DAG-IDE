@@ -1,5 +1,6 @@
 (ns vide.core
-    (:require [reagent.core :as reagent :refer [atom]]
+  (:require-macros [reagent.ratom :refer [reaction]])
+  (:require [reagent.core :as reagent :refer [atom]]
               [reagent.session :as session]
               [secretary.core :as secretary :include-macros true]
               [accountant.core :as accountant]
@@ -15,11 +16,29 @@
 
 ;; -------------------------
 ;; Views
-
+(def dummy-atom (atom {}))
 (defn home-page []
-    [:div
+      [:div
      [editor-view]
-     (focus-view)
+          (focus-view)
+
+;;      ;;-------------------------------------------------
+
+;;      [:div {:style {:position "relative"
+;;                     :top 0
+;;                     :right 0
+;;                     :display "inline-block"}}
+;;       (doall (for [i (range 4)]
+;;                (let [the-key (str "input-" i)
+;;                      signal (reaction (@dummy-atom the-key))]
+;;                  (prn (str "rendering input " i))
+;;                  [:input {:type "text"
+;;                           :key the-key
+;;                           :on-change (fn [this ]
+;;                                        (swap! dummy-atom  #(assoc %  (str "input-" (inc i)) (-> this .-target .-value)))
+;;                                        (swap! dummy-atom #(assoc % the-key (-> this .-target .-value))))
+;;                           :value @signal}])))]
+;;      ;;-------------------------------------------------
      ])
 
 (defn about-page []

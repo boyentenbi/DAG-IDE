@@ -63,10 +63,10 @@
 (defn try-read [string]
   (try
     (read-string string)
-    (catch js/Error je (prn (str "caught js exception in try-read: " je)))
+    (catch js/Error je  (prn (str "caught js exception in try-read: " je)))
     ))
 (defn try-eval [form]
-    (try
+  (try
     (evalx form)
-;;     (catch Exception e (prn (str "caught cljs exception : " e)))
+    ;;     (catch Exception e (prn (str "caught cljs exception : " e)))
     (catch js/Error je (prn (str "caught js exception in try-eval: " je)))))
