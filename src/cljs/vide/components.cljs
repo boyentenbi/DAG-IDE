@@ -294,20 +294,22 @@
         ]
     [x1 y1 x2 y2 freq label start]))
 
-(defn get-family [family graph]
-  (let [immediate-ancestors  (->> (map graph family)
+(defn get-family [ancs descs graph]
+  (let [anc-parents  (->> (map graph ancs)
                                   (map :edges-in)
                                   (apply concat)
                                   (map :start)
                                   (distinct))
-        immediate-descendants  (->> graph
+        desc-children  (->> graph
                                     (filter (fn [[uuid {node-name :name edges-in :edges-in}]]
-                                              (some (set family) (map :start edges-in))))
+                                              (some (set descs) (map :start edges-in))))
                                     (map first))
-        family-new (distinct (concat immediate-ancestors immediate-descendants family))]
-    (if (= family family-new)
-      family
-      (recur family-new graph))))
+        ancs-new (distinct (concat ancs anc-parents))
+        descs-new (distinct (concat descs desc-children))]
+    (if (and (= ancs-new ancs)
+             (= descs-new descs))
+      (distinct (concat ancs descs))
+      (recur ancs-new descs-new graph))))
 
 (defn input-view [x y start graph graph-width graph-height]
   (let [signal (reaction (@given-values-atom start))
@@ -323,7 +325,7 @@
              (fn [this ]
                (let [input (-> this .-target .-value)
                      read-value  (try-read input)
-                     invalidated-uuids  (get-family [start] graph)]
+                     invalidated-uuids  (get-family [start] [start] graph)]
 
                  (swap! given-values-atom #(apply (partial dissoc %) invalidated-uuids))
                  (swap! given-values-atom #(assoc %
