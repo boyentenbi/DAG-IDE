@@ -104,12 +104,14 @@
                                   (every? node-activations parent-uuids))
                          (let [func (if-let [user-node (@node-defs-atom end-name)]
                                       (:fn user-node)
-                                      (when-let [func  (try-read end-name)]
+                                      (when-let [func  (try-eval (try-read end-name))]
                                         (swap! node-defs-atom #(assoc-in % [end-name :fn] func))
                                         (prn "added " end-name " to node-defs")
                                         func))
                                args  (map node-activations parent-uuids)]
-                           [end (try-eval (cons func args))])))))
+                           [end (or (apply  func args)
+;;                                   (try-eval (cons func args))
+                                    )])))))
               (remove nil?)
               (into {})
               (merge node-activations))]
