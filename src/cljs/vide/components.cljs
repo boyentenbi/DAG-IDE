@@ -18,7 +18,7 @@
 (def node-w 12)
 (def spacing-right 22)
 (def spacing-down 18)
-(def font-size 3)
+(def font-size 2)
 (def same-edge-spacing (* 0.3 node-w))
 (def arrowhead-angle (/ 6.283 20))
 (def arrowhead-l (* 0.12 spacing-down))
@@ -35,19 +35,32 @@
 (def pretend-code
   (str
     "(defn square [x] (let [y (* x x)] y))"
+
     "(defn inc-vec [myvec] (let [incd (map inc myvec)] incd))"
+
 ;;     "(defn square-vec [myvec] (let [squared (map square myvec)] squared))"
     ;;     "(defn dupe [x] (let [duped [x x]] duped))"
+
     "(defn incincinc [x] (let [y (+ x x) \n
     a (inc y) \n
     b (inc a) \n
     c (inc b) \n] c))"
+
     "(defn higher [x y z] (let [a (+ x y)
                            b (repeat 5 z)
                            c  (conj b a)
                            d (map square c)
                            e (reduce + d)
-                           u (identity e)] u))"))
+                           u (identity e)] u))"
+
+    "(defn fix-group [group]
+  (let [[node-name pairs] group]
+    (hash-map node-name (vec (map first pairs)))))"
+
+    "(defn invert-noninj [some-map]
+       (let [groups (group-by val some-map)
+         fixed-groups (map fix-group groups)]
+        (apply merge fixed-groups)))"))
 
 (defn load-node-defs []
   (let [code pretend-code
@@ -58,8 +71,7 @@
         compiled-codes  (map try-read codes)
         evald-codes (map try-eval (map #(cons 'fn %) (map #(drop 1 %) compiled-codes)))
         defs (map #(hash-map :code %1 :fn %2) codes
-                  evald-codes
-                  )
+                  evald-codes)
         node-defs (zipmap names defs)]
     (reset! node-defs-atom node-defs)))
 
@@ -122,7 +134,6 @@
 
 ;; -----------------------------------------functions---------------------------------------------
 
-
 (defn next-graph [node]
   (do
     (swap! node-history-atom #(conj (remove #{node} %) node))
@@ -132,7 +143,6 @@
 (defn prev-graph []
   (do
     (swap! node-history-atom #(drop 1 %))
-
     (if-let [current-node (first @node-history-atom)]
       (.setValue @cm-atom (get-in @node-defs-atom [current-node :code]))
       (.setValue @cm-atom ""))))
@@ -147,11 +157,12 @@
 
 ;; ----------------------------------------basic views----------------------------------------------
 
-(defn node-view [x y node uuid ]
+(defn node-view [x y node uuid]
   ;; appends the node idx to the focus path to get the correct node
-  [:g  {:on-click (when (@node-defs-atom node)
-                    #(next-graph node))
-        :key uuid}
+  [:g
+   {:on-click (when (@node-defs-atom node)
+                #(next-graph node))
+    :key uuid}
    [:rect {:width node-w
            :height node-h
            :x x

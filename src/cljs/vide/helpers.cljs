@@ -43,8 +43,8 @@
   [x])
 
 (defn fix-group [group]
-  (let [[node-name [& pairs]] group]
-    {node-name (vec (map first pairs))}))
+  (let [[node-name pairs] group]
+    (hash-map node-name (vec (map first pairs)))))
 
 (defn invert-noninj [some-map]
   (let [groups (group-by val some-map)
@@ -70,3 +70,8 @@
     (evalx form)
     ;;     (catch Exception e (prn (str "caught cljs exception : " e)))
     (catch js/Error je (prn (str "caught js exception in try-eval: " je)))))
+
+(defn ifx [pred then then-args else else-args]
+  (if pred
+    (apply then then-args)
+    (apply else else-args)))
