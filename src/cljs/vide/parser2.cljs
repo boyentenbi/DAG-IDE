@@ -8,16 +8,10 @@
             ;;             [vide.helpers :refer [replace-seqs do-prn drop-nth
             ;;                                  find-indices first? firstx evalx wrap invert-noninj]]
             [clojure.zip :refer [zipper]]
-            [cljs.pprint :refer [pprint]]
+            [vide.helpers :refer [do-prn firstx]]
             ))
 (enable-console-print!)
-(defn do-prn [a]
-  (do (prn a) a))
 
-(defn firstx [thing]
-  (if (sequential? thing)
-    (first thing)
-    thing))
 (defn literal? [form]
   (cond
     (not (sequential? form)) true ;; obviously
@@ -63,11 +57,11 @@
       layers
       (let [first-pair (first remaining-pairs)
             rest-pairs (rest remaining-pairs)
-            insert-idx (get-insertion-idx [] first-pair)
+            insert-idx (get-insertion-idx layers first-pair)
             layers-new (if (= insert-idx (count layers))
-                         (conj layers [first-form])
-                         (update layers insert-idx #(conj % first-form)))]
-        (recur layers-new rest-forms)))))
+                         (conj layers [first-pair])
+                         (update  layers insert-idx #(conj % first-pair)))]
+        (recur layers-new rest-pairs)))))
 
 (defn get-height [form]
   (cond
@@ -120,7 +114,7 @@
                                   (apply merge)
                                   (remove #((set syms-provided) (second %)))
                                   (into {}))
-                    layers (do-prn (layer-let [[]] pairs pairs))] ;; we need to organize all of the inner graphs when we have a 'let' head
+                    layers  (layer-let pairs)] ;; we need to organize all of the inner graphs when we have a 'let' head
                 (assoc inner-labelled
                   :height (reduce + (map #(apply max (map  get-height %)) layers))
                   :width (apply max (map #(reduce + (map get-height %)) layers))
@@ -151,118 +145,22 @@
           (assoc :connected true))
         inner-labelled)) labelled-form))
 
-(def form '(if (= n 1)
-             prod
-             (let [prod-new ( * prod n)
-                   n-new (dec n)]
-               (fact prod-new n-new))))
+(def defn-form '(defn fact [prod n]
+             (if (= n 1)
+               prod
+               (let [prod-new ( * prod n)
+                     n-new (dec n)]
+                 (fact prod-new n-new)))))
 
-(defn pipeline [form]
+(defn model-pipeline [form]
   (->> form
        (convert-seqs)
        (label-form)
        (connect-labelled)))
 
 
-(def pipelined (pipeline form))
-
-(keys pipelined)
-(:pred pipelined)
-(:else pipelined)
-(:width pipelined)
-(:height pipelined)
-(:connected pipelined)
-(:head pipelined)
-(:then pipelined)
-(:syms-used pipelined)
-
-
-
-
-(defn get-name-tree [form]
-  (w/prewalk #(if (literal? %) (str %) %)
-             form))
-(defn get-uuid-tree [form]
-  (w/prewalk #(if (literal? %) (keyword (gensym "node-")) %)
-             form))
-
-
-
-(defn form-to-graph [form]
-  (let [uuid-tree (get-uuid-tree form)
-        name-tree (get-name-tree form)
-        uuid-tree-seq (tree-seq seq? rest uuid-tree)
-        name-tree-seq (tree-seq seq? rest name-tree)
-        subgraphs (for [i (range (count uuid-tree-seq))]
-                    (let [uuid-form (nth uuid-tree-seq i)
-                          name-form (nth name-tree-seq i)]
-                      (if (seq? uuid-form)
-                        {(firstx uuid-form) {:name (firstx name-form)
-                                             :edges-in (mapv #(hash-map
-                                                                :start (firstx %)
-                                                                :label nil) (rest uuid-form))}}
-                        {(firstx uuid-form) {:name (firstx name-form)
-                                             :edges-in []}})))
-        graph (apply merge subgraphs)]
-    graph))
-
-(defn try-read [code-string]
-  (try
-    (read-string code-string)
-    (catch js/Error e (str "caught exception: " e))))
-
-
-;; special parser for the 'let' special form
-;; This is likely to be the most used parser because
-;; let allows easy labelling of edges
-
-(defn fix-edge [{start :start label :label} naive-merged symbol-from]
-  (let [start-name (:name (naive-merged start))]
-    (if-let [end-uuid (symbol-from start-name)]
-      {:start end-uuid
-       :label start-name}
-      {:start start
-       :label label})))
-
-(defn parse-defn-let [defn-let-form]
+(defn parse-defn [defn-form]
   (let
-    [[_ func-name args let-form] defn-let-form
-     [__ defs final-form] let-form
-     duped-args (map #(list % %) args) ;; use args as structs and their own forms
-     struct-form-pairs  (concat duped-args (partition 2 defs))
-     structures  (vec (map first struct-form-pairs))
-     forms    (-> struct-form-pairs
-                  (#(map second %)) ;; get the forms
-                  (vec)
-                  (conj final-form)) ;; put the final form at the end
-     symbols  (->> structures
-                   (map wrap) ;; do this so the unwrapped symbols don't get removed
-                   (map flatten)
-                   (map #(filter symbol? %))
-                   (map #(map str %))
-                   (vec)
-                   (#(conj % (list "final")))) ;; add a dummy symbol for the final form
-     graphs (map form-to-graph forms)
-     naive-merged  (apply merge graphs)
-     end-uuids  (map #(first (keys %)) graphs) ;; because the first node is always the end node
-     ;;         nodes  (apply merge (map vals graphs))
-     ;;         edges (apply concat (map :edges graphs))
-     end-uuids-rep-syms (apply concat (map #(repeat (count %1) %2) symbols end-uuids))
-     symbol-from   (zipmap (flatten symbols) end-uuids-rep-syms)
-     ;; ^ this tells us the uuid of the node that each symbol node is the child of
-     arg-node-uuids (flatten (map keys (take (count args) graphs)))
-     symbols-removed (->> naive-merged
-                          (remove (fn [[uuid {node-name :name edges-in :edges-in}]]
-                                    (and (some #{node-name} (flatten symbols))
-                                         (not (some #{uuid} arg-node-uuids)))))
-                          (into {}))
-     merged (->> symbols-removed
-                 (map (fn [[uuid node]]
-                        {uuid (update
-                          node
-                          :edges-in
-                          (fn [edges-in]
-                            (mapv #(fix-edge % naive-merged symbol-from)
-                                 edges-in)))}))
-                 (apply merge ))]
-              merged))
+    [[_ func-name args form]  defn-form]
+    (model-pipeline form)))
+
