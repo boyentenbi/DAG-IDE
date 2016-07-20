@@ -10,7 +10,7 @@
             [vide.helpers :refer [try-eval try-read do-prn drop-nth find-indices first? firstx]]
             [vide.drawer :refer [childless? get-best-layers coords-from-layers get-activated]]
             [vide.parser :refer [parse-defn-let]]
-            [vide.parser2 :refer [model-pipeline parse-defn]]
+            [vide.parser2 :refer [model-pipeline parse-defn assoc-coords]]
             ))
 ;; ----------------------------------------style params----------------------------------------------
 
@@ -323,14 +323,14 @@
 
 (defn get-family [ancs descs graph]
   (let [anc-parents  (->> (map graph ancs)
-                                  (map :edges-in)
-                                  (apply concat)
-                                  (map :start)
-                                  (distinct))
+                          (map :edges-in)
+                          (apply concat)
+                          (map :start)
+                          (distinct))
         desc-children  (->> graph
-                                    (filter (fn [[uuid {node-name :name edges-in :edges-in}]]
-                                              (some (set descs) (map :start edges-in))))
-                                    (map first))
+                            (filter (fn [[uuid {node-name :name edges-in :edges-in}]]
+                                      (some (set descs) (map :start edges-in))))
+                            (map first))
         ancs-new (distinct (concat ancs anc-parents))
         descs-new (distinct (concat descs desc-children))]
     (if (and (= ancs-new ancs)
@@ -353,11 +353,10 @@
                 uuid
                 {:raw nil
                  :compiled  (or (get-in @node-defs-atom [node-name :fn]
-                               (try-read node-name)))})))
-    (let [
-           given-values (zipmap (keys @given-values-atom)
-                                (map :compiled (vals @given-values-atom)))
-           activated  (get-activated graph given-values node-defs-atom)]
+                                        (try-read node-name)))})))
+    (let [given-values (zipmap (keys @given-values-atom)
+                               (map :compiled (vals @given-values-atom)))
+          activated  (get-activated graph given-values node-defs-atom)]
       (doseq [[uuid value] activated]
         (swap! given-values-atom #(assoc-in % [uuid :compiled] value))))))
 
@@ -375,77 +374,52 @@
              (fn [this ]
                (let [input (-> this .-target .-value)]
                  (give-value start input graph)))
-             :value  value
-             :style {
-                      :position "absolute"
-                      :left  (* (- x (+ (* 0.5 (- node-w spacing-right)))) ratio-w)
-                      :top   (* (- y (+ (* -0.05 spacing-down ) (* 0.5 (- node-h spacing-down)))) ratio-h)
-                      :width (* ratio-h font-size 2.4)
-                      :height (* ratio-h font-size 0.4)
-                      :font-size (* ratio-h font-size 0.5)
-                      }}]))
+               :value  value
+               :style {
+                        :position "absolute"
+                        :left  (* (- x (+ (* 0.5 (- node-w spacing-right)))) ratio-w)
+                        :top   (* (- y (+ (* -0.05 spacing-down ) (* 0.5 (- node-h spacing-down)))) ratio-h)
+                        :width (* ratio-h font-size 2.4)
+                        :height (* ratio-h font-size 0.4)
+                        :font-size (* ratio-h font-size 0.5)
+                        }}]))
 
 
-(defn if-view [model]
-  (let [{:keys [height width syms-used head pred then else]} model]
-    [:g
+(defn if-view [if-model]
+  (let [{:keys [height width x y syms-used head pred then else]} if-model]
+    [:g {:transform (str "translate(" x " " y ")" )}
      [:text (str head)]
      pred
      then
      else]))
-(defn let-view [model]
-  (let [{:keys [height width syms-used head bindings]} model]
-    [:g
-     [:text (str head)]
-     bindings]))
-(defn basic-view [model]
-  (let [{:keys [height width syms-used head forms]} model]
-    [:g
-     [:text (str head)]
-     forms]))
+
+(defn let-view [let-model]
+  (let [{:keys [height width x y syms-used head layers]} let-model
+        syms-removed (vec (for [layers layers]
+                       (vec (concat [:g [:text "layer"]]  (for [pair layers]
+                         (second pair))))))]
+    (vec (concat [:g {:transform (str "translate(" x " " y ")" )}
+                  [:text (str head)]]
+                 syms-removed))))
+
+(defn basic-view [basic-model]
+  (let [{:keys [height width x y syms-used head forms]} basic-model]
+    (vec (concat [:g {:transform (str "translate(" x " " y ")" )} ] forms [[:text (str head)]]))))
 
 
-
-;; (defn assoc-coords [model]
-;;   (->> model
-;;     (#(assoc % :x 0 :y 0)) ;; make the outermost group have coords 0 0
-;;     (w/prewalk
-;;     (fn [inner-model]
-;;       (if (and (map? inner-model)
-;;                (:model inner-model))
-;;         (let [{:keys [height width syms-used head x y]} inner-model]
-;;           (cond
-;;             (= head if )
-;;             (let [pred-height (get-in inner-model [:pred :height])
-;;                   pred-width (get-in inner-model [:pred :width])
-;;                   pred-x (+ x (* 0.5 width) (* -0.5 pred-width))
-;;                   then-height (get-in inner-model [:then :height])
-;;                   then-width (get-in inner-model [:then :width])
-;;                   else-height (get-in inner-model [:else :height])
-;;                   else-width (get-in inner-model [:else :width])]
-;;               (-> inner-model
-;;                   (assoc-in [:pred :x] (x (* 0.5 width) pred-width)) ;; pred is horizontally center
-;;                   (assoc-in [:pred :y] 0)) ;; pred is top
-
-;;             (= head let)
-;;             (let-view inner-model)
-
-;;             (ifn? head)
-;;             (basic-view inner-model)))
-;;         inner-model)
-;;                )))))
 
 (defn graph-view2 [current-node]
   (let [code  (get-in @node-defs-atom [@current-node :code])
         form (try-read code)
-        model (parse-defn form)]
+        model  (parse-defn form)]
     (->>  model
           ;;       (#(assoc ))
+          (do-prn )
           (w/postwalk
             (fn [inner-model]
               (if (and (map? inner-model)
                        (:connected inner-model))
-                (let [{:keys [height width syms-used head x y]} inner-model]
+                (let [head  (:head inner-model)]
                   (cond
                     (= head 'if )
                     (if-view inner-model)
@@ -457,20 +431,19 @@
                     (basic-view inner-model)))
                 inner-model
                 )))
-          (conj
-              [:svg {:width "100%"
-                     :height "100%"
-;;                      :view-box (str  0 " "
-;;                                      0 " "
-                     ;;                                      width " "
-                     ;;                                      height)
-                     :style {:position "absolute"}}
-               ])
+          (do-prn )
+          (conj (let [{:keys [height width]} model]
+                  [:svg {:width "100%"
+                         :height "100%"
+                         :view-box (str  0 " "
+                                         0 " "
+                                         width " "
+                                         height)
+                         :style {:position "absolute"}}
+                   ]))
           (conj [:div {:id "graph-view"
                        :style {:height "85%"
-                               :position "relative"
-                               :z-index 1}}])
-          (do-prn )
+                               :position "relative"}}])
           )))
 
 

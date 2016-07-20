@@ -112,13 +112,16 @@
                     syms-used (->> forms
                                   (map #(get-syms-used id %))
                                   (apply merge)
-                                  (remove #((set syms-provided) (second %)))
-                                  (into {}))
+                                   (remove #((set syms-provided) (second %)))
+                                   (into {}))
                     layers  (layer-let pairs)] ;; we need to organize all of the inner graphs when we have a 'let' head
-                (assoc inner-labelled
-                  :height (reduce + (map #(apply max (map  get-height %)) layers))
-                  :width (apply max (map #(reduce + (map get-height %)) layers))
-                  :syms-used syms-used))
+                (-> inner-labelled
+                    (assoc
+                      :height (reduce + (map #(apply max (map  get-height %)) layers))
+                      :width (apply max (map #(reduce + (map get-height %)) layers))
+                      :syms-used syms-used
+                      :layers layers)
+                    (dissoc :bindings)))
 
               (ifn? head)
               (let [forms (:forms inner-labelled)]
@@ -145,18 +148,80 @@
           (assoc :connected true))
         inner-labelled)) labelled-form))
 
+(defn assoc-coords [model]
+  (->>
+    model
+    (#(assoc % :x 0 :y 0));; make the outermost group have coords 0 0
+    (w/prewalk
+      (fn [inner-model]
+        (if (and (map? inner-model)
+                 (:connected inner-model))
+          (let [{:keys [height width syms-used head x y]} inner-model]
+            (cond
+              (= head 'if )
+              (let [{:keys [pred then else]} inner-model
+                    pred-height (get-in inner-model [:pred :height])
+                    pred-width (get-in inner-model [:pred :width])
+                    pred-x (+ (* 0.5 width) (* -0.5 pred-width))
+                    then-height (get-in inner-model [:then :height])
+                    then-width (get-in inner-model [:then :width])
+                    else-height (get-in inner-model [:else :height])
+                    else-width (get-in inner-model [:else :width])
+                    pred-new (if (map? pred)
+                               (assoc pred :x pred-x :y 0)
+                               pred)
+                    then-new (if (map? then)
+                               (assoc then :x else-width :y pred-height)
+                               then)
+                    else-new (if (map? else)
+                               (assoc else :x 0 :y pred-height)
+                               else)]
+                (assoc inner-model :pred pred-new :then then-new :else else-new))
+
+              (= head 'let)
+              (let [layers (:layers inner-model)]
+                (assoc inner-model :layers
+                  (vec (for [i (range (count layers))]
+                    (vec (for [j (range (count (nth layers i)))]
+                      (let [layer (nth layers i)
+                            pair (nth layer j)
+                            layers-up-to (take i layers)
+                            pairs-up-to (take j layer)
+                            y (or (reduce + (for [layer layers-up-to]
+                                              (apply max (map #(:height (second %)) layer)))) 0)
+                            x (or (reduce + (map #(:width (second %)) pairs-up-to)) 0)]
+                        (if (map? (second pair))
+                          (update (vec pair) 1 #(assoc % :x x :y y) )
+                          pair))))))
+                  ))
+
+              (ifn? head)
+              (let [forms (:forms inner-model)
+                    forms-new (for [i (range (count forms))]
+                                (let [form (nth forms i)
+                                      forms-up-to (take i forms)
+                                      x (or (reduce + (map :width forms-up-to)) 0)
+                                      form-new (if (map? form)
+                                                 (assoc form :x x :y 0)
+                                                 form)]
+                                  form-new))]
+                (assoc inner-model :forms forms-new))))
+          inner-model)
+        ))))
+
 (def defn-form '(defn fact [prod n]
-             (if (= n 1)
-               prod
-               (let [prod-new ( * prod n)
-                     n-new (dec n)]
+                  (if (= n 1)
+                    prod
+                    (let [prod-new ( * prod n)
+                          n-new (dec n)]
                  (fact prod-new n-new)))))
 
 (defn model-pipeline [form]
   (->> form
        (convert-seqs)
        (label-form)
-       (connect-labelled)))
+       (connect-labelled)
+       (assoc-coords)))
 
 
 (defn parse-defn [defn-form]
