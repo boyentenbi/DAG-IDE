@@ -10,7 +10,7 @@
             [vide.helpers :refer [try-eval try-read do-prn drop-nth find-indices first? firstx]]
             [vide.drawer :refer [childless? get-best-layers coords-from-layers get-activated]]
             [vide.parser :refer [parse-defn-let]]
-            [vide.parser2 :refer [model-pipeline parse-defn assoc-coords]]
+            [vide.parser2 :refer [model-pipeline parse-defn assoc-coords get-height get-width]]
             ))
 ;; ----------------------------------------style params----------------------------------------------
 
@@ -22,8 +22,6 @@
 (def spacing-down 18)
 (def font-size 2)
 (def same-edge-spacing (* 0.3 node-w))
-(def arrowhead-angle (/ 6.283 20))
-(def arrowhead-l (* 0.12 spacing-down))
 (def node-style {:fill "white"
                    :stroke "orange"
                    :stroke-width 0.8
@@ -56,7 +54,7 @@
                            u (identity e)] u))"
 
     "(defn fact [prod n] (if (= n 1)
-                                   prod
+                                   (identity prod)
                                    (let [prod-new  (* prod n)
                                          n-new (dec n)]
                                      (fact prod-new n-new))))"))
@@ -76,7 +74,6 @@
 
 
 (load-node-defs)
-;; (do-prn ((get-in @node-defs-atom ["square" :fn]) 2))
 
 ;; ---------------------------------------- node history ----------------------------------------------
 
@@ -153,7 +150,7 @@
                           (reagent/dom-node this))]
         (.appendChild node (.getWrapperElement @cm-atom))
         ))))
-
+(next-graph "fact")
 ;; ----------------------------------------basic views----------------------------------------------
 
 (defn node-view [x y node uuid]
@@ -177,19 +174,6 @@
                    :font-family "Ubuntu"}}
     node]])
 
-(defn arrowhead-view [x y th col]
-  (let [p1 (str x "," y)
-        a2 (+ th arrowhead-angle)
-        a3 (- th arrowhead-angle)
-        x2 (+ x (* arrowhead-l (.sin js/Math a2)))
-        y2 (+ y ( * arrowhead-l (.cos js/Math a2)))
-        p2 (str x2 "," y2)
-        x3 (+ x (* arrowhead-l (.sin js/Math a3)))
-        y3 (+ y ( * arrowhead-l (.cos js/Math a3)))
-        p3 (str x3 "," y3)]
-    [:polygon {:points (str p1 " " p2 " " p3)
-               :style {:fill col
-                       :opacity 1}}]))
 
 (defn button-view [text callback]
   [:button {:style {:position "absolute"
@@ -239,51 +223,51 @@
            (dropdown-node node))
          [:option {:key "select-label"} "Choose node"])])
 
-(defn edge-freq-view [x1 y1 x2 y2 freq label start]
-  (let [bend-y (+ y1 (* 0.2 spacing-down))
-        n-spaces (dec freq)
-        left-adjust  (* -1 0.5 n-spaces same-edge-spacing)
-        col "black"
-        word-len (* -0.6 font-size (+ 0.7  (count label)))
-;;         value (reaction (@given-values-atom start))
-        col (if (get-in @given-values-atom [start :compiled]) "#00ffff" arrow-fill)
-        id (gensym (str "edge-"))]
-    [:g {:key id
-         :id id
-         }
-     [:line {:x1 x1
-             :y1 y1
-             :x2 x1
-             :y2 bend-y
-             :style {:stroke col
-                     :stroke-linecap "round"
-                     :stroke-width 0.4
-                     :opacity 1}}]
+;; (defn edge-freq-view [x1 y1 x2 y2 freq label start]
+;;   (let [bend-y (+ y1 (* 0.2 spacing-down))
+;;         n-spaces (dec freq)
+;;         left-adjust  (* -1 0.5 n-spaces same-edge-spacing)
+;;         col "black"
+;;         word-len (* -0.6 font-size (+ 0.7  (count label)))
+;; ;;         value (reaction (@given-values-atom start))
+;;         col (if (get-in @given-values-atom [start :compiled]) "#00ffff" arrow-fill)
+;;         id (gensym (str "edge-"))]
+;;     [:g {:key id
+;;          :id id
+;;          }
+;;      [:line {:x1 x1
+;;              :y1 y1
+;;              :x2 x1
+;;              :y2 bend-y
+;;              :style {:stroke col
+;;                      :stroke-linecap "round"
+;;                      :stroke-width 0.4
+;;                      :opacity 1}}]
 
-     (for [i (range freq)]
-       (let [end-x (+ left-adjust x2 (* i same-edge-spacing))
-              arrowhead-x (+ (* 0.3 x1)     (* 0.7 end-x))
-             arrowhead-y (+ (* 0.3 bend-y) (* 0.7 y2))
-             th (+ 3.1416 (.atan js/Math (/ (- end-x x1) (- y2 bend-y))))]
-         [:g {:key (gensym (str id "-end-"))}
-          [:line {:x1 x1
-                  :y1 bend-y
-                  :x2 end-x
-                  :y2 y2
-                  :style {:stroke col
-                          :stroke-width 0.4
-                          :opacity 1}}]
-          (arrowhead-view arrowhead-x arrowhead-y th col)]))
+;;      (for [i (range freq)]
+;;        (let [end-x (+ left-adjust x2 (* i same-edge-spacing))
+;;               arrowhead-x (+ (* 0.3 x1)     (* 0.7 end-x))
+;;              arrowhead-y (+ (* 0.3 bend-y) (* 0.7 y2))
+;;              th (+ 3.1416 (.atan js/Math (/ (- end-x x1) (- y2 bend-y))))]
+;;          [:g {:key (gensym (str id "-end-"))}
+;;           [:line {:x1 x1
+;;                   :y1 bend-y
+;;                   :x2 end-x
+;;                   :y2 y2
+;;                   :style {:stroke col
+;;                           :stroke-width 0.4
+;;                           :opacity 1}}]
+;;           (arrowhead-view arrowhead-x arrowhead-y th col)]))
 
-     (when label
-       [:text {:x (+ x1 word-len)
-               :y (+ (* 0.83 bend-y) (* 0.17 y1))
-               :style {:font-size font-size
-                       :font-family "Ubuntu"
-                       :color col}}
-        ;;         (str label " " value)
-        label
-        ])]))
+;;      (when label
+;;        [:text {:x (+ x1 word-len)
+;;                :y (+ (* 0.83 bend-y) (* 0.17 y1))
+;;                :style {:font-size font-size
+;;                        :font-family "Ubuntu"
+;;                        :color col}}
+;;         ;;         (str label " " value)
+;;         label
+;;         ])]))
 
 (defn get-freq-info [edge-freq layers graph-height graph-width]
   (let [[{start :start end :end label :label} freq] edge-freq
@@ -385,40 +369,133 @@
                         }}]))
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+(def node-h2 0.5)
+(def node-w2 0.6)
+(def arrowhead-angle (/ 6.283 20))
+(def arrowhead-l 0.15)
+
+
+(defn arrowhead-view [x y th col]
+  (let [p1 (str x "," y)
+        a2 (+ th arrowhead-angle)
+        a3 (- th arrowhead-angle)
+        x2 (+ x (* arrowhead-l (.sin js/Math a2)))
+        y2 (+ y ( * arrowhead-l (.cos js/Math a2)))
+        p2 (str x2 "," y2)
+        x3 (+ x (* arrowhead-l (.sin js/Math a3)))
+        y3 (+ y ( * arrowhead-l (.cos js/Math a3)))
+        p3 (str x3 "," y3)]
+    [:polygon {:points (str p1 " " p2 " " p3)
+               :style {:fill col
+                       :opacity 1}}]))
+
+(defn edge-view2 [x1 y1 x2 y2 label]
+  (let [col "black"
+        arrowhead-x (+ (* 0.3 x1) (* 0.7 x2))
+        arrowhead-y (+ (* 0.3 y1) (* 0.7 y2))
+        th (+ (.atan js/Math (/ (- x2 x1) (- y2 y1))))]
+    [:g
+     [:line {:x1 x1
+             :y1 y1
+             :x2 x2
+             :y2 y2
+             :style {:stroke col
+                     :stroke-width 0.02
+                     :opacity 1}}]
+     (arrowhead-view arrowhead-x arrowhead-y th col)]))
+
+(defn separator-view [x y w h]
+  [:rect {:transform (str "translate(" x " " y ")")
+          :width w
+          :height h
+          :stroke "black"
+          :stroke-width 0.01
+          :fill "white"}])
+
+
+(defn node-view2 [x y text]
+  [:g {:transform (str "translate(" (+ x (* 0.5 (- 1 node-w2))) " " (+ y (* 0.5 (- 1 node-h2))) ")")}
+   [:rect {:height node-h2 :width node-w2 :stroke-width 0.04 :stroke "orange" :fill "white"}]
+   [:text {:transform (str "translate(" 0.08 " " 0.2 ")")} text]])
+
 (defn if-view [if-model]
-  (let [{:keys [height width x y syms-used head pred then else]} if-model]
-    [:g {:transform (str "translate(" x " " y ")" )}
+  (let [{:keys [height width coords syms-used head pred then else]} if-model
+        pred-height (get-height pred)
+        else-width (get-width else)
+        then-width (get-width then)]
+    [:g {:transform (str "translate" coords )}
      [:text (str head)]
-     pred
-     then
-     else]))
+     [:g
+      (separator-view 0 0 width height)
+      (separator-view 0 pred-height else-width (- height pred-height))
+      (separator-view else-width pred-height then-width (- height pred-height))
+      pred
+      then
+      else]]))
 
 (defn let-view [let-model]
-  (let [{:keys [height width x y syms-used head layers]} let-model
-        syms-removed (vec (for [layers layers]
-                       (vec (concat [:g [:text "layer"]]  (for [pair layers]
-                         (second pair))))))]
-    (vec (concat [:g {:transform (str "translate(" x " " y ")" )}
-                  [:text (str head)]]
-                 syms-removed))))
+  (let [{:keys [height width coords syms-used head layers final]} let-model
+        syms-removed (vec (for [layer layers]
+                            (vec (concat [:g] (for [pair layer]
+                                                (second pair))))))]
+    (vec (concat [:g {:transform (str "translate" coords)}
+                  [:text (str head)]
+                  (separator-view 0 0 width height)]
+                  syms-removed
+                 [final]))))
 
 (defn basic-view [basic-model]
-  (let [{:keys [height width x y syms-used head forms]} basic-model]
-    (vec (concat [:g {:transform (str "translate(" x " " y ")" )} ] forms [[:text (str head)]]))))
-
-
+  (let [{:keys [height width coords syms-used head forms]} basic-model
+        head-x (- (* 0.5 width) 0.5)
+        head-y (dec height)
+        _ (prn head)
+        form-coords (seq (for [form (do-prn forms)] (if (map? form ) (:coords form) nil)))
+        arrow-starts (do-prn (map
+                               (fn [[x y]] [(+ x 0.5) (+ y (+ node-h2 (* 0.5 (- 1 node-h2))))])
+                               form-coords))
+;;         arrows-end ()
+        edge-views (for [[x1 y1] arrow-starts]
+                      (edge-view2 x1 y1 (+ head-x 0.5) (+ head-y (* 0.5 (- 1 node-h2)) ) nil))]
+    (vec (concat [:g {:transform (str "translate" coords)} ]
+                 forms
+                 [(node-view2 head-x head-y (str head))]
+                 edge-views
+                 ))))
 
 (defn graph-view2 [current-node]
-  (let [code  (get-in @node-defs-atom [@current-node :code])
+  (let [code (get-in @node-defs-atom [@current-node :code])
         form (try-read code)
-        model  (parse-defn form)]
+        model (parse-defn form)]
+
     (->>  model
           ;;       (#(assoc ))
-          (do-prn )
-          (w/postwalk
+          (w/prewalk
             (fn [inner-model]
               (if (and (map? inner-model)
-                       (:connected inner-model))
+                       (:syms-used inner-model))
                 (let [head  (:head inner-model)]
                   (cond
                     (= head 'if )
@@ -431,20 +508,40 @@
                     (basic-view inner-model)))
                 inner-model
                 )))
-          (do-prn )
+          (do-prn)
           (conj (let [{:keys [height width]} model]
                   [:svg {:width "100%"
                          :height "100%"
-                         :view-box (str  0 " "
-                                         0 " "
-                                         width " "
-                                         height)
-                         :style {:position "absolute"}}
-                   ]))
+                         :view-box (str (* -0.1 width) " "
+                                        (* -0.1 height) " "
+                                        (* 1.4 width) " "
+                                        (* 1.4 height))
+                         :style {:position "absolute"
+                                 :font-size 0.2}}]))
           (conj [:div {:id "graph-view"
-                       :style {:height "85%"
-                               :position "relative"}}])
-          )))
+                       :style {:height "80%"
+                               :position "relative"}}]))))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 ;; (defn graph-view [current-node]
@@ -515,7 +612,7 @@
                       :height "100%"
                       :width "50%"}}
        [:div {:style {:float "top"
-                      :height "15%"
+                      :height "20%"
                       :width "100%"
                       }}
         (button-view "back" #(prev-graph))

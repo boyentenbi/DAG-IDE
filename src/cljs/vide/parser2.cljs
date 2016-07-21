@@ -66,12 +66,12 @@
 (defn get-height [form]
   (cond
     (map? form) (:height form)
-    (symbol? form) 1
+    (symbol? form) 0
     :else 1))
 (defn get-width [form]
   (cond
     (map? form) (:width form)
-    (symbol? form) 1
+    (symbol? form) 0
     :else 1))
 (defn get-syms-used [id form]
   (cond
@@ -83,80 +83,84 @@
   (w/postwalk
     (fn [inner-labelled]
       (if (map? inner-labelled)
-        (->
-          (let [connected (:connected inner-labelled)
-                head (:head inner-labelled)
-                id (:id inner-labelled)] ;; we have these keys regardless of the head type
-            (cond
-              connected inner-labelled ;; if already done, don't do it again!
+        (let [head (:head inner-labelled)
+              id (:id inner-labelled)] ;; we have these keys regardless of the head type
+          (cond
 
-              (= 'if head)
-              (let [pred (:pred inner-labelled)
-                    then (:then inner-labelled)
-                    else (:else inner-labelled)] ;; 3 forms if we have an 'if' head
-                (assoc inner-labelled
-                  :height (+ (max (get-height then)
-                                  (get-height else))
-                             (get-height pred))
-                  :width (max (+ (get-width then)
-                                 (get-width else))
-                              (get-width pred))
-                  :syms-used (apply merge (map #(get-syms-used id %)
-                                               [pred then else]))))
+            (:syms-used inner-labelled)
+            inner-labelled ;; if already done, don't do it again!
 
-              (= 'let head)
-              (let [bindings (:bindings inner-labelled)
-                    pairs (partition 2 bindings)
-                    syms-provided (map first pairs)
-                    forms (map second pairs)
-                    syms-used (->> forms
-                                  (map #(get-syms-used id %))
-                                  (apply merge)
-                                   (remove #((set syms-provided) (second %)))
-                                   (into {}))
-                    layers  (layer-let pairs)] ;; we need to organize all of the inner graphs when we have a 'let' head
-                (-> inner-labelled
-                    (assoc
-                      :height (reduce + (map #(apply max (map  get-height %)) layers))
-                      :width (apply max (map #(reduce + (map get-height %)) layers))
-                      :syms-used syms-used
-                      :layers layers)
-                    (dissoc :bindings)))
+            (= 'if head)
+            (let [pred (:pred inner-labelled)
+                  then (:then inner-labelled)
+                  else (:else inner-labelled)] ;; 3 forms if we have an 'if' head
+              (assoc inner-labelled
+                :height (+ (max (get-height then)
+                                (get-height else))
+                           (get-height pred))
+                :width (max (+ (get-width then)
+                               (get-width else))
+                            (get-width pred))
+                :syms-used (apply merge (map #(get-syms-used id %)
+                                             [pred then else]))))
 
-              (ifn? head)
-              (let [forms (:forms inner-labelled)]
-                (assoc inner-labelled
-                  :height (->> forms
-                               (map get-height)
-                               (apply max)
-                               (inc))
-                  :width (->> forms
-                              (map get-width)
-                              (reduce + )
-                              (max 1))
-                  :syms-used (apply merge (map #(get-syms-used id %) forms))))
-              ;;                       (= 'do head) (let [side-effects (:side-effects inner-labelled)]
-              ;;                                      (assoc inner-labelled
-              ;;                                        :height (->> side-effects
-              ;;                                                     (map #(cond
-              ;;                                                             (map? %) (:height %)
-              ;;                                                             (symbol? %) 1
-              ;;                                                             :else 1))
-              ;;                                                     (apply #(reduce + %))
-              ;;                                                     (inc))))
-              ))
-          (assoc :connected true))
+            (= 'let head)
+            (let [{:keys [final bindings]} inner-labelled
+                  pairs (partition 2 bindings)
+                  syms-provided (map first pairs)
+                  forms (map second pairs)
+                  syms-used (->> forms
+                                 (map #(get-syms-used id %))
+                                 (apply merge)
+                                 (remove #((set syms-provided) (second %)))
+                                 (into {}))
+                  layers  (layer-let pairs)
+                  layers-height (reduce + (map #(apply max (map  get-height (map second %))) layers))
+                  layers-width (apply max (map #(reduce + (map get-height (map second %))) layers))
+                  height (+ layers-height (get-height final))
+                  width (max layers-width (get-width final))] ;; we need to organize all of the inner graphs when we have a 'let' head
+              (-> inner-labelled
+                  (assoc
+                    :height height
+                    :width width
+                    :syms-used syms-used
+                    :layers layers)
+                  (dissoc :bindings)))
+
+            (ifn? head)
+            (let [forms (:forms inner-labelled)]
+              (assoc inner-labelled
+                :height (->> forms
+                             (map get-height)
+                             (apply max)
+                             (inc))
+                :width (->>  forms
+                            (map get-width)
+                            (reduce +)
+                            (max 1)
+                            )
+                :syms-used (apply merge (map #(get-syms-used id %) forms))))
+            ;;                       (= 'do head) (let [side-effects (:side-effects inner-labelled)]
+            ;;                                      (assoc inner-labelled
+            ;;                                        :height (->> side-effects
+            ;;                                                     (map #(cond
+            ;;                                                             (map? %) (:height %)
+            ;;                                                             (symbol? %) 1
+            ;;                                                             :else 1))
+            ;;                                                     (apply #(reduce + %))
+            ;;                                                     (inc))))
+            ))
         inner-labelled)) labelled-form))
 
 (defn assoc-coords [model]
   (->>
     model
-    (#(assoc % :x 0 :y 0));; make the outermost group have coords 0 0
+    (#(assoc % :coords (list 0 0) ));; make the outermost group have coords 0 0
     (w/prewalk
       (fn [inner-model]
         (if (and (map? inner-model)
-                 (:connected inner-model))
-          (let [{:keys [height width syms-used head x y]} inner-model]
+                 (:syms-used inner-model))
+          (let [{:keys [height width syms-used head]} inner-model]
             (cond
               (= head 'if )
               (let [{:keys [pred then else]} inner-model
@@ -168,19 +172,20 @@
                     else-height (get-in inner-model [:else :height])
                     else-width (get-in inner-model [:else :width])
                     pred-new (if (map? pred)
-                               (assoc pred :x pred-x :y 0)
+                               (assoc pred :coords (list pred-x 0))
                                pred)
                     then-new (if (map? then)
-                               (assoc then :x else-width :y pred-height)
+                               (assoc then :coords (list else-width pred-height))
                                then)
                     else-new (if (map? else)
-                               (assoc else :x 0 :y pred-height)
+                               (assoc else :coords (list 0 pred-height))
                                else)]
                 (assoc inner-model :pred pred-new :then then-new :else else-new))
 
               (= head 'let)
-              (let [layers (:layers inner-model)]
-                (assoc inner-model :layers
+              (let [{:keys [layers final width]} inner-model]
+                (assoc inner-model
+                  :layers
                   (vec (for [i (range (count layers))]
                     (vec (for [j (range (count (nth layers i)))]
                       (let [layer (nth layers i)
@@ -189,20 +194,21 @@
                             pairs-up-to (take j layer)
                             y (or (reduce + (for [layer layers-up-to]
                                               (apply max (map #(:height (second %)) layer)))) 0)
-                            x (or (reduce + (map #(:width (second %)) pairs-up-to)) 0)]
+                            x (or (reduce +  (map #(:width (second %)) pairs-up-to)) 0)]
                         (if (map? (second pair))
-                          (update (vec pair) 1 #(assoc % :x x :y y) )
+                          (update (vec pair) 1 #(assoc % :coords (list x  y)) )
                           pair))))))
-                  ))
+                  :final
+                  (assoc final :coords (list (+ (* 0.5 width) (* -0.5 (get-width final))) (count layers)))))
 
-              (ifn? head)
-              (let [forms (:forms inner-model)
+              (ifn?  head)
+              (let [forms  (:forms inner-model)
                     forms-new (for [i (range (count forms))]
                                 (let [form (nth forms i)
                                       forms-up-to (take i forms)
                                       x (or (reduce + (map :width forms-up-to)) 0)
                                       form-new (if (map? form)
-                                                 (assoc form :x x :y 0)
+                                                 (assoc form :coords (list x  0))
                                                  form)]
                                   form-new))]
                 (assoc inner-model :forms forms-new))))
