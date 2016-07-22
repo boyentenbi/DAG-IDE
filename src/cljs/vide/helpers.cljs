@@ -51,6 +51,14 @@
         fixed-groups (map fix-group groups)]
     (apply merge fixed-groups)))
 
+(defn mergex [& maps]
+  (->> maps
+       (map seq)
+       (apply concat)
+       (group-by first)
+       (map (fn [[map-key pairs]] [map-key (vec (mapcat second pairs))]))
+       (into {})))
+
 (defn replace-seq [form]
   (cond
     (vector? form) (cons vector (apply list form))

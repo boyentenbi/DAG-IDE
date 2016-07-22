@@ -150,7 +150,6 @@
                           (reagent/dom-node this))]
         (.appendChild node (.getWrapperElement @cm-atom))
         ))))
-(next-graph "fact")
 ;; ----------------------------------------basic views----------------------------------------------
 
 (defn node-view [x y node uuid]
@@ -388,15 +387,11 @@
 
 
 
-
-
-
-
 (def node-h2 0.5)
 (def node-w2 0.6)
 (def arrowhead-angle (/ 6.283 20))
 (def arrowhead-l 0.15)
-
+(def endpt-adjust ())
 
 (defn arrowhead-view [x y th col]
   (let [p1 (str x "," y)
@@ -416,7 +411,7 @@
   (let [col "black"
         arrowhead-x (+ (* 0.3 x1) (* 0.7 x2))
         arrowhead-y (+ (* 0.3 y1) (* 0.7 y2))
-        th (+ (.atan js/Math (/ (- x2 x1) (- y2 y1))))]
+        th (+ 3.1416 (.atan js/Math (/ (- x2 x1) (- y2 y1))))]
     [:g
      [:line {:x1 x1
              :y1 y1
@@ -425,7 +420,15 @@
              :style {:stroke col
                      :stroke-width 0.02
                      :opacity 1}}]
-     (arrowhead-view arrowhead-x arrowhead-y th col)]))
+     (arrowhead-view arrowhead-x arrowhead-y th col)
+     (when label
+              [:text {:x (+ (* 0.4 x1) (* 0.6 x2) (* -0.04 (count (str label))))
+                      :y (+ (* 0.4 y1) (* 0.6 y2))
+                      :style {:font-size 0.15
+                              :font-family "Ubuntu"
+                              :color col}}
+               label
+               ])]))
 
 (defn separator-view [x y w h]
   [:rect {:transform (str "translate(" x " " y ")")
@@ -442,11 +445,11 @@
    [:text {:transform (str "translate(" 0.08 " " 0.2 ")")} text]])
 
 (defn if-view [if-model]
-  (let [{:keys [height width coords syms-used head pred then else]} if-model
+  (let [{:keys [height width coords-rel syms-used head pred then else]} if-model
         pred-height (get-height pred)
         else-width (get-width else)
         then-width (get-width then)]
-    [:g {:transform (str "translate" coords )}
+    [:g {:transform (str "translate" coords-rel )}
      [:text (str head)]
      [:g
       (separator-view 0 0 width height)
@@ -456,39 +459,82 @@
       then
       else]]))
 
-(defn let-view [let-model]
-  (let [{:keys [height width coords syms-used head layers final]} let-model
-        syms-removed (vec (for [layer layers]
-                            (vec (concat [:g] (for [pair layer]
-                                                (second pair))))))]
-    (vec (concat [:g {:transform (str "translate" coords)}
+(defn let-view [let-model seqd-model]
+  (let [{:keys [height width coords-rel coords-abs syms-used head layers final]} let-model
+        all-pairs (for [layer layers
+                        pair layer] pair)
+        syms-removed (vec (map second all-pairs))
+        edge-groups
+        (for [pair all-pairs]
+          (let [[sym form] pair
+                form-rel (get form :coords-rel)
+                _ (prn [sym (get form :head)])
+                [x1 y1] (map + [0.5 (- 1 (* 0.5 (- 1 node-h2)))]
+                             form-rel)
+                targets (filter
+                          (fn
+                            [targ-form]
+                            (when-let [targ-id (:id targ-form)]
+                              (some #{sym} (targ-id (:syms-used targ-form))))) seqd-model)
+;;                 _ (prn (str "targets = "
+;;                             (map #(get % :head) targets )
+;;                             " at "
+;;                             (map #(get % :coords-abs) targets)))
+                endpoints (for [target targets]
+                            (do
+;;                               (prn (str "target: " (get target :head)) )
+                              (map + [(* 0.5 (get-width target))
+                                     (- (get-height target) (+ node-h2 (* 0.5 (- 1 node-h2))))]
+                                 (map -  (get target :coords-abs) coords-abs))))
+                edge-group (for [[x2 y2] endpoints] (edge-view2 x1 y1 x2 y2 sym))]
+
+            edge-group))
+        edges (vec (apply concat edge-groups))
+        ]
+    (vec (concat [:g {:transform (str "translate" coords-rel)}
                   [:text (str head)]
                   (separator-view 0 0 width height)]
-                  syms-removed
+                 edges
+                 syms-removed
                  [final]))))
 
 (defn basic-view [basic-model]
-  (let [{:keys [height width coords syms-used head forms]} basic-model
+  (let [{:keys [height width coords-rel syms-used head forms]} basic-model
         head-x (- (* 0.5 width) 0.5)
         head-y (dec height)
-        _ (prn head)
-        form-coords (seq (for [form (do-prn forms)] (if (map? form ) (:coords form) nil)))
-        arrow-starts (do-prn (map
-                               (fn [[x y]] [(+ x 0.5) (+ y (+ node-h2 (* 0.5 (- 1 node-h2))))])
-                               form-coords))
+        form-coords-rel (remove nil? (for [form forms] (when (map? form) (:coords-rel form))))
+        arrow-starts  (for [rel form-coords-rel]
+                        (map + [0.5 (- 1 (* 0.5 (- 1 node-h2)))] rel) )
 ;;         arrows-end ()
         edge-views (for [[x1 y1] arrow-starts]
                       (edge-view2 x1 y1 (+ head-x 0.5) (+ head-y (* 0.5 (- 1 node-h2)) ) nil))]
-    (vec (concat [:g {:transform (str "translate" coords)} ]
+    (vec (concat [:g {:transform (str "translate" coords-rel)} ]
                  forms
-                 [(node-view2 head-x head-y (str head))]
+                 [ (node-view2 head-x head-y (str head))]
                  edge-views
                  ))))
 
 (defn graph-view2 [current-node]
   (let [code (get-in @node-defs-atom [@current-node :code])
         form (try-read code)
-        model (parse-defn form)]
+        model (parse-defn form)
+        seqd-model (tree-seq
+                     #(and (map? %)
+                           (:syms-used %))
+                     #(or
+                        (when-let [layers (:layers %)]
+                          (conj
+                            (for [layer layers
+                                  pair layer]
+                              (second pair))
+                            (:final %)))
+                        (:forms %)
+                        (when-let [pred (:pred %)]
+                          (seq (list pred (:then %) (:else %)))))
+                     model)
+;;         _ (do-prn (map #(or (:head %)
+;;                             %) seqd-model))
+        ]
 
     (->>  model
           ;;       (#(assoc ))
@@ -502,13 +548,12 @@
                     (if-view inner-model)
 
                     (= head 'let)
-                    (let-view inner-model)
+                    (let-view inner-model seqd-model)
 
                     (ifn? head)
                     (basic-view inner-model)))
                 inner-model
                 )))
-          (do-prn)
           (conj (let [{:keys [height width]} model]
                   [:svg {:width "100%"
                          :height "100%"
