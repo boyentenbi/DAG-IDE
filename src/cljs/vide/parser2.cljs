@@ -39,16 +39,18 @@
                      (ifn? head) {:head head :id (gensym (str head "-")) :forms (vec tail)}))
                  inner-form)) form))
 
-(defn get-insertion-idx [layers form]
-  (let [syms-used (apply concat (vals (:syms-used form)))]
-    (loop [checking-idx (dec (count layers))]
-
-      (if (= checking-idx -1)
+(defn get-insertion-idx [layers pair]
+  (let [form  (second pair)
+        form-id  (get form :id)
+        syms-used  (when form-id
+                     (form-id (:syms-used form)))]
+    (loop [checking-idx (count layers)]
+      (if (= checking-idx 0)
         0
-        (let [layer (nth layers checking-idx)]
-          (if (some (set (map first layer)) syms-used)
-            (recur (dec checking-idx))
-            checking-idx))))))
+        (let [layer-below (nth layers (dec checking-idx))]
+          (if (some (set (map first layer-below)) syms-used)
+            checking-idx
+            (recur (dec checking-idx))))))))
 
 (defn layer-let [pairs]
   (loop [layers []
@@ -57,7 +59,7 @@
       layers
       (let [first-pair (first remaining-pairs)
             rest-pairs (rest remaining-pairs)
-            insert-idx (get-insertion-idx layers first-pair)
+            insert-idx  (get-insertion-idx layers first-pair)
             layers-new (if (= insert-idx (count layers))
                          (conj layers [first-pair])
                          (update  layers insert-idx #(conj % first-pair)))]
@@ -67,12 +69,12 @@
   (cond
     (map? form) (:height form)
     (symbol? form) 0
-    :else 1))
+    :else 0))
 (defn get-width [form]
   (cond
     (map? form) (:width form)
     (symbol? form) 0
-    :else 1))
+    :else 0))
 (defn get-syms-used [id form]
   (cond
     (map? form) (:syms-used form)
@@ -113,7 +115,7 @@
                   syms-used (->> (conj forms final)
                                  (map #(get-syms-used id %))
                                  (apply mergex))
-                  layers  (layer-let pairs)
+                  layers (layer-let pairs)
                   layers-height (reduce + (map #(apply max (map  get-height (map second %))) layers))
                   layers-width (apply max (map #(reduce + (map get-width (map second %))) layers))
                   height (+ layers-height (get-height final))
@@ -163,7 +165,7 @@
       (fn [inner-model]
         (if (and (map? inner-model)
                  (:syms-used inner-model))
-          (let [{:keys [height width head coords-abs coords-rel]} inner-model]
+            (let [{:keys [height width head coords-abs coords-rel]} inner-model]
             (cond
               (= head 'if )
               (let [{:keys [pred then else]} inner-model
@@ -224,9 +226,11 @@
                   :layers
                   new-layers
                   :final
-                  (assoc final
+                 (if (map? final)
+                   (assoc final
                     :coords-rel final-rel
-                    :coords-abs final-abs)))
+                    :coords-abs final-abs)
+                   final)))
 
               (ifn?  head)
               (let [forms  (:forms inner-model)
@@ -271,5 +275,5 @@
 (defn parse-defn [defn-form]
   (let
     [[_ func-name args form]  defn-form]
-    (model-pipeline form)))
+    [args (model-pipeline form)]))
 

@@ -422,13 +422,13 @@
                      :opacity 1}}]
      (arrowhead-view arrowhead-x arrowhead-y th col)
      (when label
-              [:text {:x (+ (* 0.4 x1) (* 0.6 x2) (* -0.04 (count (str label))))
-                      :y (+ (* 0.4 y1) (* 0.6 y2))
-                      :style {:font-size 0.15
-                              :font-family "Ubuntu"
-                              :color col}}
-               label
-               ])]))
+       [:text {:x (+ (* 0.4 x1) (* 0.6 x2) (* -0.04 (count (str label))))
+               :y (+ (* 0.4 y1) (* 0.6 y2))
+               :style {:font-size 0.15
+                       :font-family "Ubuntu"
+                       :color col}}
+        label
+        ])]))
 
 (defn separator-view [x y w h]
   [:rect {:transform (str "translate(" x " " y ")")
@@ -437,7 +437,6 @@
           :stroke "black"
           :stroke-width 0.01
           :fill "white"}])
-
 
 (defn node-view2 [x y text]
   [:g {:transform (str "translate(" (+ x (* 0.5 (- 1 node-w2))) " " (+ y (* 0.5 (- 1 node-h2))) ")")}
@@ -468,7 +467,6 @@
         (for [pair all-pairs]
           (let [[sym form] pair
                 form-rel (get form :coords-rel)
-                _ (prn [sym (get form :head)])
                 [x1 y1] (map + [0.5 (- 1 (* 0.5 (- 1 node-h2)))]
                              form-rel)
                 targets (filter
@@ -476,21 +474,17 @@
                             [targ-form]
                             (when-let [targ-id (:id targ-form)]
                               (some #{sym} (targ-id (:syms-used targ-form))))) seqd-model)
-;;                 _ (prn (str "targets = "
-;;                             (map #(get % :head) targets )
-;;                             " at "
-;;                             (map #(get % :coords-abs) targets)))
+                ;;                 _ (prn (str "targets = "
+                ;;                             (map #(get % :head) targets )
+                ;;                             " at "
+                ;;                             (map #(get % :coords-abs) targets)))
                 endpoints (for [target targets]
-                            (do
-;;                               (prn (str "target: " (get target :head)) )
-                              (map + [(* 0.5 (get-width target))
-                                     (- (get-height target) (+ node-h2 (* 0.5 (- 1 node-h2))))]
-                                 (map -  (get target :coords-abs) coords-abs))))
+                            (map + [(* 0.5 (get-width target))
+                                      (- (get-height target) (+ node-h2 (* 0.5 (- 1 node-h2))))]
+                                   (map -  (get target :coords-abs) coords-abs)))
                 edge-group (for [[x2 y2] endpoints] (edge-view2 x1 y1 x2 y2 sym))]
-
             edge-group))
-        edges (vec (apply concat edge-groups))
-        ]
+        edges (vec (apply concat edge-groups))]
     (vec (concat [:g {:transform (str "translate" coords-rel)}
                   [:text (str head)]
                   (separator-view 0 0 width height)]
@@ -499,25 +493,38 @@
                  [final]))))
 
 (defn basic-view [basic-model]
-  (let [{:keys [height width coords-rel syms-used head forms]} basic-model
+  (let [{:keys [height width coords-rel coords-abs syms-used head forms]} basic-model
         head-x (- (* 0.5 width) 0.5)
         head-y (dec height)
-        form-coords-rel (remove nil? (for [form forms] (when (map? form) (:coords-rel form))))
-        arrow-starts  (for [rel form-coords-rel]
-                        (map + [0.5 (- 1 (* 0.5 (- 1 node-h2)))] rel) )
-;;         arrows-end ()
+;;         _ (prn (str "head: " head))
+;;         _ (prn (str "coords-abs: " coords-abs))
+;;         _ (prn (str "form-heads: " (map #(or (get % :head) %) forms)))
+
+        form-coords-abs (remove nil? (map :coords-abs forms))
+        form-coords-rel (map #(map - % coords-abs) form-coords-abs)
+        form-head-coords-rel (remove nil?
+                                             (map (fn [form]
+                                                    (when-let [width (get form :width)]
+                                                      (vector (- (* 0.5 width) 0.5)
+                                                            (dec (get form :height )))))
+                                                  forms))
+
+        arrow-starts  (for [rel form-head-coords-rel]
+                        (map + [0.5 (- 1 (* 0.5 (- 1 node-h2)))] rel))
+        ;;         arrows-end ()
         edge-views (for [[x1 y1] arrow-starts]
-                      (edge-view2 x1 y1 (+ head-x 0.5) (+ head-y (* 0.5 (- 1 node-h2)) ) nil))]
+                     (edge-view2 x1 y1 (+ head-x 0.5) (+ head-y (* 0.5 (- 1 node-h2)) ) nil))]
     (vec (concat [:g {:transform (str "translate" coords-rel)} ]
                  forms
-                 [ (node-view2 head-x head-y (str head))]
-                 edge-views
-                 ))))
+                 [(node-view2 head-x head-y (str head))]
+                 edge-views))))
 
 (defn graph-view2 [current-node]
   (let [code (get-in @node-defs-atom [@current-node :code])
         form (try-read code)
-        model (parse-defn form)
+        [args model] (parse-defn form)
+        height (get model :height)
+        width (get model :width)
         seqd-model (tree-seq
                      #(and (map? %)
                            (:syms-used %))
@@ -532,12 +539,22 @@
                         (when-let [pred (:pred %)]
                           (seq (list pred (:then %) (:else %)))))
                      model)
-;;         _ (do-prn (map #(or (:head %)
-;;                             %) seqd-model))
+        arg-edges (->>
+                    (for [i (range (count args))
+                          inner-model seqd-model
+                          :when (and (:id inner-model)
+                                     (some #{(nth args i)} ((:id inner-model)(:syms-used inner-model))))]
+                      (let [[model-x model-y] (get inner-model :coords-abs)
+                            [x2 y2] [(+ (* 0.5 (get-width inner-model)) model-x)
+                                     (+ (- (get-height inner-model)
+                                           (+ node-h2 (* 0.5 (- 1 node-h2)))) model-y)]
+                            x1 (* (inc i) (/ width (inc (count args )) ))
+                            y1 0]
+                        (edge-view2 x1 y1 x2 y2 (nth args i))))
+                    (remove nil?)
+                    (vec))
         ]
-
     (->>  model
-          ;;       (#(assoc ))
           (w/prewalk
             (fn [inner-model]
               (if (and (map? inner-model)
@@ -554,15 +571,18 @@
                     (basic-view inner-model)))
                 inner-model
                 )))
+;;           (conj [:g {:transform "translate(0 1)"}])
+
+          (#(apply (partial conj %) arg-edges))
           (conj (let [{:keys [height width]} model]
                   [:svg {:width "100%"
                          :height "100%"
-                         :view-box (str (* -0.1 width) " "
-                                        (* -0.1 height) " "
-                                        (* 1.4 width) " "
-                                        (* 1.4 height))
+                         :view-box (str 0 " "
+                                        -0.3 " "
+                                        width " "
+                                        (+ 0.5 height))
                          :style {:position "absolute"
-                                 :font-size 0.2}}]))
+                                 :font-size 0.1}}]))
           (conj [:div {:id "graph-view"
                        :style {:height "80%"
                                :position "relative"}}]))))
