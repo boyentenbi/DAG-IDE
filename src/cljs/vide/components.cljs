@@ -57,7 +57,8 @@
                                    (identity prod)
                                    (let [prod-new  (* prod n)
                                          n-new (dec n)]
-                                     (fact prod-new n-new))))"))
+                                     (fact prod-new n-new))))"
+    "(defn nested-let [x] (let [y (+ x x) a (inc y) b (dec (dec y)) c (repeat 5 (+ a b))]  c))"))
 
 (defn load-node-defs []
   (let [code pretend-code
@@ -105,14 +106,15 @@
             ]
         (swap! node-defs-atom #(assoc-in % [current-node :code] new-text))
         (when evald (swap! node-defs-atom #(assoc-in % [current-node :fn] evald)))
-        (when-let [graph (parse-defn-let (try-read new-text))]
+        (when-let [model (parse-defn (try-read new-text))]
             (do
-              (swap! node-defs-atom #(assoc-in % [current-node :graph] graph))
-              (doseq [node-name (map :name (vals graph))]
-                (when-not #(some #{node-name} %) (keys @node-defs-atom)
-                  (swap! node-defs-atom #(assoc-in % [node-name :fn] (try-read node-name)))
-                  (prn "added " node-name " to node-defs"))
-                ))
+              (swap! node-defs-atom #(assoc-in % [current-node :model] model))
+;;               (doseq [node-name (map :name (vals model))]
+;;                 (when-not #(some #{node-name} %) (keys @node-defs-atom)
+;;                   (swap! node-defs-atom #(assoc-in % [node-name :fn] (try-read node-name)))
+;;                   (prn "added " node-name " to node-defs"))
+;;                 )
+              )
           ))
       ;;                                         (reset! node-defs-atom
       ;;                                                 (rename-keys new-node-defs {current-node (str func-name)}))
@@ -299,10 +301,7 @@
                    (or (@node-defs-atom node-name)
                        (not (symbol? (try-read node-name))))
                    )))
-       (into {}))
-
-  )
-
+       (into {})))
 
 (defn get-family [ancs descs graph]
   (let [anc-parents  (->> (map graph ancs)
@@ -335,8 +334,8 @@
              #(assoc %
                 uuid
                 {:raw nil
-                 :compiled  (or (get-in @node-defs-atom [node-name :fn]
-                                        (try-read node-name)))})))
+                 :compiled (or (get-in @node-defs-atom [node-name :fn]
+                                       (try-read node-name)))})))
     (let [given-values (zipmap (keys @given-values-atom)
                                (map :compiled (vals @given-values-atom)))
           activated  (get-activated graph given-values node-defs-atom)]
@@ -385,11 +384,11 @@
 
 
 
+(def graph-model (atom nil))
 
-
-(def node-h2 0.5)
+(def node-h2 0.46)
 (def node-w2 0.6)
-(def arrowhead-angle (/ 6.283 20))
+(def arrowhead-angle (/ 6.283 24))
 (def arrowhead-l 0.15)
 (def endpt-adjust ())
 
@@ -407,28 +406,41 @@
                :style {:fill col
                        :opacity 1}}]))
 
-(defn edge-view2 [x1 y1 x2 y2 label]
+(defn edge-group [x1 y1 endpoints label]
   (let [col "black"
-        arrowhead-x (+ (* 0.3 x1) (* 0.7 x2))
-        arrowhead-y (+ (* 0.3 y1) (* 0.7 y2))
-        th (+ 3.1416 (.atan js/Math (/ (- x2 x1) (- y2 y1))))]
-    [:g
-     [:line {:x1 x1
-             :y1 y1
-             :x2 x2
-             :y2 y2
-             :style {:stroke col
-                     :stroke-width 0.02
-                     :opacity 1}}]
-     (arrowhead-view arrowhead-x arrowhead-y th col)
-     (when label
-       [:text {:x (+ (* 0.4 x1) (* 0.6 x2) (* -0.04 (count (str label))))
-               :y (+ (* 0.4 y1) (* 0.6 y2))
-               :style {:font-size 0.15
-                       :font-family "Ubuntu"
-                       :color col}}
-        label
-        ])]))
+        bend-y (+ y1 0.15)]
+    (vec
+      (concat
+      [:g
+       [:line {:x1 x1
+               :y1 y1
+               :x2 x1
+               :y2 bend-y
+               :style {:stroke col
+                       :stroke-width 0.016
+                       :opacity 1}}]
+       (when label
+         [:text {:x (+ x1 0.05)
+                 :y (+ y1 0.16)
+                 :style {:font-size 0.15
+                         :font-family "Ubuntu"
+                         :color col}}
+          label])]
+
+         (for [[x2 y2] endpoints]
+           (let [arrowhead-x (+ (* 0.4 x1)     (* 0.6 x2))
+                 arrowhead-y (+ (* 0.4 bend-y) (* 0.6 y2))
+                 th (+ 3.1416 (.atan js/Math (/ (- x2 x1) (- y2 bend-y))))]
+              [:g
+               [:line {:x1 x1
+                      :y1 bend-y
+                      :x2 x2
+                      :y2 y2
+                      :style {:stroke col
+                              :stroke-width 0.016
+                              :opacity 1}}]
+              (arrowhead-view arrowhead-x arrowhead-y th col)]))
+       ))))
 
 (defn separator-view [x y w h]
   [:rect {:transform (str "translate(" x " " y ")")
@@ -436,12 +448,13 @@
           :height h
           :stroke "black"
           :stroke-width 0.01
-          :fill "white"}])
+          :stroke-dasharray "0.01, 0.02"
+          :fill "none"}])
 
 (defn node-view2 [x y text]
   [:g {:transform (str "translate(" (+ x (* 0.5 (- 1 node-w2))) " " (+ y (* 0.5 (- 1 node-h2))) ")")}
-   [:rect {:height node-h2 :width node-w2 :stroke-width 0.04 :stroke "orange" :fill "white"}]
-   [:text {:transform (str "translate(" 0.08 " " 0.2 ")")} text]])
+   [:rect {:height node-h2 :width node-w2 :stroke-width 0.045 :stroke "orange" :fill "white"}]
+   [:text {:transform (str "translate(" 0.06 " " 0.17 ")")} text]])
 
 (defn if-view [if-model]
   (let [{:keys [height width coords-rel syms-used head pred then else]} if-model
@@ -458,22 +471,38 @@
       then
       else]]))
 
-(defn let-view [let-model seqd-model]
+(defn let-view [let-model]
   (let [{:keys [height width coords-rel coords-abs syms-used head layers final]} let-model
+        seqd (rest (tree-seq
+                     #(and (map? %)
+                           (:syms-used %))
+                     #(or
+                        (when-let [layers (:layers %)]
+                          (conj
+                            (for [layer layers
+                                  pair layer]
+                              (second pair))
+                            (:final %)))
+                        (:forms %)
+                        (when-let [pred (:pred %)]
+                          (seq (list pred (:then %) (:else %)))))
+                     let-model))
         all-pairs (for [layer layers
                         pair layer] pair)
         syms-removed (vec (map second all-pairs))
         edge-groups
         (for [pair all-pairs]
           (let [[sym form] pair
-                form-rel (get form :coords-rel)
-                [x1 y1] (map + [0.5 (- 1 (* 0.5 (- 1 node-h2)))]
-                             form-rel)
-                targets (filter
+                [form-x form-y] (get form :coords-rel)
+                form-height (get form :height)
+                form-width (get form :width)
+                x1 (+ form-x (* 0.5 form-width))
+                y1 (+ form-y (- form-height (* 0.5 (- 1 node-h2))))
+                targets  (filter
                           (fn
                             [targ-form]
                             (when-let [targ-id (:id targ-form)]
-                              (some #{sym} (targ-id (:syms-used targ-form))))) seqd-model)
+                              (some #{sym} (targ-id (:syms-used targ-form))))) seqd)
                 ;;                 _ (prn (str "targets = "
                 ;;                             (map #(get % :head) targets )
                 ;;                             " at "
@@ -482,13 +511,13 @@
                             (map + [(* 0.5 (get-width target))
                                       (- (get-height target) (+ node-h2 (* 0.5 (- 1 node-h2))))]
                                    (map -  (get target :coords-abs) coords-abs)))
-                edge-group (for [[x2 y2] endpoints] (edge-view2 x1 y1 x2 y2 sym))]
-            edge-group))
-        edges (vec (apply concat edge-groups))]
+                edge-group  (edge-group x1 y1 endpoints sym)]
+            edge-group))]
     (vec (concat [:g {:transform (str "translate" coords-rel)}
-                  [:text (str head)]
-                  (separator-view 0 0 width height)]
-                 edges
+;;                   [:text (str head)]
+;;                   (separator-view 0 0 width height)
+                  ]
+                 edge-groups
                  syms-removed
                  [final]))))
 
@@ -496,35 +525,215 @@
   (let [{:keys [height width coords-rel coords-abs syms-used head forms]} basic-model
         head-x (- (* 0.5 width) 0.5)
         head-y (dec height)
-;;         _ (prn (str "head: " head))
-;;         _ (prn (str "coords-abs: " coords-abs))
-;;         _ (prn (str "form-heads: " (map #(or (get % :head) %) forms)))
+        ;;         _ (prn (str "head: " head))
+        ;;         _ (prn (str "coords-abs: " coords-abs))
+        ;;         _ (prn (str "form-heads: " (map #(or (get % :head) %) forms)))
 
         form-coords-abs (remove nil? (map :coords-abs forms))
         form-coords-rel (map #(map - % coords-abs) form-coords-abs)
         form-head-coords-rel (remove nil?
-                                             (map (fn [form]
-                                                    (when-let [width (get form :width)]
-                                                      (vector (- (* 0.5 width) 0.5)
-                                                            (dec (get form :height )))))
-                                                  forms))
+                                     (map (fn [form]
+                                            (when-let [width (get form :width)]
+                                              (vector (- (* 0.5 width) 0.5)
+                                                      (dec (get form :height )))))
+                                          forms))
 
         arrow-starts  (for [rel form-head-coords-rel]
                         (map + [0.5 (- 1 (* 0.5 (- 1 node-h2)))] rel))
         ;;         arrows-end ()
-        edge-views (for [[x1 y1] arrow-starts]
-                     (edge-view2 x1 y1 (+ head-x 0.5) (+ head-y (* 0.5 (- 1 node-h2)) ) nil))]
+        edge-groups (for [[x1 y1] arrow-starts]
+                      (edge-group x1 y1 [[(+ head-x 0.5) (+ head-y (* 0.5 (- 1 node-h2)) )]] nil))]
     (vec (concat [:g {:transform (str "translate" coords-rel)} ]
                  forms
                  [(node-view2 head-x head-y (str head))]
-                 edge-views))))
+                 edge-groups))))
+
+(defn set-anc-changed [inner]
+  (if (and (map? inner)
+          ( :syms-used inner))
+    (let [{:keys [head]} inner]
+        (cond
+
+          (and
+           (:anc-changed inner)
+            (= head 'if))
+          (let [{:keys [pred then else]} inner
+                [pred-new then-new else-new] (map #(if (map? %)
+                                                     (assoc %
+                                                 :raw-input nil
+                                                 :evaluation nil
+                                                 :anc-changed true)
+                                                     %) [pred then else])]
+            (do (prn (str (get inner :id) " has anc-changed, setting anc changed for children: "
+                          (map #(or (:id %) %) [pred then else])))
+              (assoc inner :pred pred-new :then then-new :else else-new)))
+
+          (= head 'let)
+          (if
+           (:anc-changed inner) ;; set all children
+            (let [{:keys [layers final]} inner
+                all-pairs (for [layer layers pair layer] pair)
+                syms-removed (map second all-pairs)
+                layers-new (for [layer layers]
+                             (for [pair layer]
+                               (update pair 1 #(if (map? %)
+                                                 (assoc %
+                                                 :raw-input nil
+                                                 :evaluation nil
+                                                   :anc-changed true)
+                                                 %))))
+                  final-new (if (map? final)
+                              (assoc final :raw-input nil
+                                :evaluation nil
+                                :anc-changed true)
+                              final)]
+            (do (prn (str (get inner :id) " has anc-changed, setting anc changed for children: "
+                          (map #(or (:id %) %) (conj syms-removed final)) ))
+              (assoc inner :layers layers-new :final final-new)
+              ))
+            (let [])
+            )
+
+          (and
+            (:anc-changed inner)
+            (ifn? head))
+          (let [{:keys [forms]} inner
+                forms-new  (for [form forms]
+                             (if (map? form)
+                               (assoc form
+                               :raw-input nil
+                               :evaluation nil
+                               :anc-changed true)
+                               form))]
+            (do (prn (str (get inner :id) " has anc-changed, setting anc changed for children: "
+                          (map #(or (:id %) %) forms) ))
+              (assoc inner :forms forms-new)))))
+    inner))
+
+(defn set-anc-vals [inner]
+  (if (and (map?  inner)
+           (:syms-used inner))
+    (do (prn (str "setting anc changed for " (get inner :id) "  " ))
+      (let [{:keys [head]} inner]
+        (cond
+
+          (= head 'if)
+          (let [{:keys [pred then else]} inner]
+            (do (prn (str "checking children: " (map #(or (:id %) %) [pred then else]) " for desc changes"))
+              (if (some true?  (map :anc-changed [pred then else]) )
+                (do (prn (str (get inner :id) " had a desc change. "))
+                  (assoc inner
+                    :raw-input nil
+                    :evaluation nil
+                    :anc-changed true))
+                (assoc inner
+                  :anc-changed false))))
+
+          (= head 'let)
+          (let [{:keys [layers final]} inner
+                all-pairs (for [layer layers pair layer] pair)
+                syms-removed (map second all-pairs)]
+            (do (prn (str "checking children: " (map #(or (:id %) %) (conj syms-removed final)) " for desc changes" ))
+              (if (some true? (map :anc-changed (conj syms-removed final)))
+                (do (prn (str (get inner :id) " had a desc change. "))
+                  (assoc inner
+                    :raw-input nil
+                    :evaluation nil
+                    :anc-changed true))
+                (assoc inner
+                  :anc-changed false))))
+
+          (ifn? head)
+          (let [{:keys [forms]} inner]
+            (do (prn (str "checking children: " (map #(or (:id %) %) forms) " for desc changes"))
+              (if (some true? (map :anc-changed forms) )
+                (do (prn (str (get inner :id) " had a desc change. "))
+                  (assoc inner
+                    :raw-input nil
+                    :evaluation nil
+                    :anc-changed true))
+                (assoc inner
+                  :anc-changed false))))
+          :else inner)))))
+
+(defn update-model [input-node-id raw-input evaluation [args model]]
+  "An inner model's dependencies are its children AS A MODEL. E.g a 'let' depends on its layers.
+  Thus, during the PREWALK we set all child input values of the overridden input node to nil.
+  This is because those values are no longer necessarily consistent with the override value.
+
+  An inner model's dependents are its parents as a model. Thus, during the POSTWALK we propagate the
+  override value and remaining inferred valued."
+  (->>
+      model
+      ;; preliminary prewalk to assoc the input and evaluation to input model
+      (w/prewalk
+        (fn [inner]
+          (cond
+
+            (and (map? inner)
+                   (= (get inner :id) input-node-id))
+            (do
+              (prn (str "changing input for " input-node-id " to: " raw-input))
+              (prn (str "with evaluation: " evaluation))
+              (assoc inner
+                :raw-input raw-input
+                :evaluation evaluation
+                :anc-changed true))
+
+            (and (map? inner)
+                 (:syms-used inner))
+            (assoc inner :anc-changed false)
+
+            :else inner)))
+      ;;  set :anc-changed on descendants
+      (w/prewalk
+        set-anc-changed)
+;;     (w/postwalk
+;;       set-desc-vals)
+      (conj [args])))
+
+(defn input-view2 [current-node input-inner head-x head-y ratio-w ratio-h]
+  (let [{:keys [id forms head]} input-inner
+        input-x (* ratio-w (- (* 0.5 (get-width input-inner)) (* 0.5 node-w2)))
+        input-y (* ratio-h (- (get-height input-inner) (* 0.5 (- 1 node-h2))))]
+    (vec
+      (concat
+        [:div {:style {:position "absolute"
+                       :top head-y
+                       :left head-x
+                       }}
+         [:input {:type "text"
+                  :value (str (or (:evaluation input-inner)
+                                  (:raw-input input-inner)
+                                  ""))
+                  :on-change
+                  (fn [this]
+                      (let [raw-input (-> this .-target .-value)
+                          evaluation  (try-read raw-input)]
+
+                      (swap! node-defs-atom
+                             (fn [node-defs-atom]
+                               (update-in node-defs-atom [current-node :model]
+                                          #(update-model id raw-input evaluation %))))))
+
+                  :style {:z-index 1
+                          :position "absolute"
+                          :left  input-x
+                          :top   input-y
+                          :width (* ratio-h node-w2)
+                          :height (* ratio-h node-h2 0.25)
+                          :font-size (* ratio-h node-h2 0.25)
+                          }}]]
+        forms))))
 
 (defn graph-view2 [current-node]
-  (let [code (get-in @node-defs-atom [@current-node :code])
-        form (try-read code)
-        [args model] (parse-defn form)
-        height (get model :height)
-        width (get model :width)
+  (let [[args model] (get-in @node-defs-atom [current-node :model])
+        ;;          code (get-in @node-defs-atom [@current-node :code])
+        ;;         form (try-read code)
+        ;;         [args model] (parse-defn form)
+        svg-height (get model :height)
+        svg-width (get model :width)
+        ;;         _ (prn (str "svg dims: " svg-width ", " svg-height))
         seqd-model (tree-seq
                      #(and (map? %)
                            (:syms-used %))
@@ -541,51 +750,109 @@
                      model)
         arg-edges (->>
                     (for [i (range (count args))
-                          inner-model seqd-model
-                          :when (and (:id inner-model)
-                                     (some #{(nth args i)} ((:id inner-model)(:syms-used inner-model))))]
-                      (let [[model-x model-y] (get inner-model :coords-abs)
-                            [x2 y2] [(+ (* 0.5 (get-width inner-model)) model-x)
-                                     (+ (- (get-height inner-model)
+                          inner seqd-model
+                          :when (and (:id inner)
+                                     (some #{(nth args i)} ((:id inner)(:syms-used inner))))]
+                      (let [[model-x model-y] (get inner :coords-abs)
+                            [x2 y2] [(+ (* 0.5 (get-width inner)) model-x)
+                                     (+ (- (get-height inner)
                                            (+ node-h2 (* 0.5 (- 1 node-h2)))) model-y)]
-                            x1 (* (inc i) (/ width (inc (count args )) ))
+                            x1 (* (inc i) (/ svg-width (inc (count args )) ))
                             y1 0]
-                        (edge-view2 x1 y1 x2 y2 (nth args i))))
+                        (edge-group x1 y1 [[x2 y2]] (nth args i))))
                     (remove nil?)
                     (vec))
-        ]
-    (->>  model
-          (w/prewalk
-            (fn [inner-model]
-              (if (and (map? inner-model)
-                       (:syms-used inner-model))
-                (let [head  (:head inner-model)]
-                  (cond
-                    (= head 'if )
-                    (if-view inner-model)
+        svg-inner (->>  model
+                        (w/prewalk
+                          (fn [inner]
+                            (if (and (map? inner)
+                                     (:syms-used inner))
+                              (let [head  (:head inner)]
+                                (cond
+                                  (= head 'if )
+                                  (if-view inner)
 
-                    (= head 'let)
-                    (let-view inner-model seqd-model)
+                                  (= head 'let)
+                                  (let-view inner)
 
-                    (ifn? head)
-                    (basic-view inner-model)))
-                inner-model
-                )))
-;;           (conj [:g {:transform "translate(0 1)"}])
+                                  (ifn? head)
+                                  (basic-view inner)))
+                              inner
+                              )))
+                        ;;           (conj [:g {:transform "translate(0 1)"}])
 
-          (#(apply (partial conj %) arg-edges))
-          (conj (let [{:keys [height width]} model]
-                  [:svg {:width "100%"
-                         :height "100%"
-                         :view-box (str 0 " "
-                                        -0.3 " "
-                                        width " "
-                                        (+ 0.5 height))
-                         :style {:position "absolute"
-                                 :font-size 0.1}}]))
-          (conj [:div {:id "graph-view"
-                       :style {:height "80%"
-                               :position "relative"}}]))))
+                        (#(apply (partial conj %) arg-edges)))
+        inputs  (w/prewalk
+                  (fn [inner]
+                    (if (and (map? inner)
+                             (:syms-used inner))
+                      (let [{:keys [head height width coords-rel id]} inner
+                            [x-model y-model] (get inner :coords-rel)
+                            graph-view (js/document.getElementById "graph-view")
+                            svg-inner-view (js/document.getElementById "svg-inner")
+                            graph-height (.-clientHeight graph-view)
+                            graph-width (.-clientWidth graph-view)
+                            ;;                                 _ (prn (str "graph dims: " graph-width " " graph-height))
+                            ratio-h (/ graph-height svg-height)
+                            ratio-w ratio-h
+                            ;;                               _ (prn (str "ratios: " ratio-w " " ratio-h))
+                            ;;                                   x-adjust (* ratio-w )
+                            x-actual (* x-model ratio-w)
+                                  y-actual (* y-model ratio-h)
+;;                               _(prn (str "coords: " x-actual " " y-actual))
+                              ]
+                          (cond
+                            (= head 'if )
+                            (let [{:keys [syms-used pred then else]} inner
+                                  pred-height (get-height pred)
+                                  else-width (get-width else)
+                                  then-width (get-width then)
+                                  ]
+                              [:div {:style {:position "absolute"
+                                             :top y-actual
+                                             :left x-actual}}
+                               pred then else])
+
+                            (= head 'let)
+                            (let [{:keys [ layers final]} inner
+                                  all-pairs (for [layer layers
+                                                  pair layer] pair)
+                                  syms-removed (vec (map second all-pairs))]
+                              (vec (concat [:div {:style {:position "absolute"
+                                             :top y-actual
+                                             :left x-actual
+                                             }}]
+                                      syms-removed
+                                      [final])))
+
+                            (ifn? head)
+                            (input-view2 current-node inner x-actual y-actual ratio-w ratio-h)))
+                     inner
+                     )) model)]
+
+    [:div {:id "graph-view"
+           :style {:height "80%"
+                   :position "relative"}}
+;;      [:input {:type "text"
+;;               :style {:z-index 1}}]
+     [:div {:style {:position "absolute"
+                    :width "100%"
+                    :height "100%"
+                    :font-size 0.15}}
+       inputs]
+     [:svg {:width "100%"
+            :height "100%"
+            :view-box (str 0 " "
+                           0 " "
+                           svg-width " "
+                           svg-height)
+            :style {:position "absolute"
+                    :font-size 0.15}}
+      svg-inner]
+
+
+
+     ]))
 
 
 
@@ -666,7 +933,7 @@
 ;;          ))]))
 
 (defn focus-view []
-  (let [current-node  (reaction (first @node-history-atom))
+  (let [current-node   (first @node-history-atom)
         ;;               code (get-in @node-defs-atom [current-node :code])
         ]
     [:div {:style {
@@ -687,7 +954,7 @@
                     :top 30
                     :left 30
                      :font-size 30
-                     :font-family "Ubuntu"}} @current-node]]
+                     :font-family "Ubuntu"}} current-node]]
        [graph-view2 current-node]
        ]
       ))

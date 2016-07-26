@@ -42,15 +42,22 @@
 (defn get-insertion-idx [layers pair]
   (let [form  (second pair)
         form-id  (get form :id)
-        syms-used  (when form-id
-                     (form-id (:syms-used form)))]
+;;         _ (prn "syms-used: ")
+        syms-used  (apply concat (vals (:syms-used form)))]
     (loop [checking-idx (count layers)]
-      (if (= checking-idx 0)
-        0
+      (do
+;;         (prn (str "checking idx " checking-idx))
+        (if (= checking-idx 0)
+        (do
+;;           (prn "reached bottom, insert at 0")
+          0)
         (let [layer-below (nth layers (dec checking-idx))]
+;;           (prn (str "layer below: " layer-below))
           (if (some (set (map first layer-below)) syms-used)
-            checking-idx
-            (recur (dec checking-idx))))))))
+            (do
+;;               (prn (str "layer below has used a sym, insert at " checking-idx))
+              checking-idx)
+            (recur (dec checking-idx)))))))))
 
 (defn layer-let [pairs]
   (loop [layers []
@@ -58,8 +65,11 @@
     (if (empty? remaining-pairs)
       layers
       (let [first-pair (first remaining-pairs)
+            first-head (:head (second first-pair))
+;;             _ (prn first-head)
             rest-pairs (rest remaining-pairs)
             insert-idx  (get-insertion-idx layers first-pair)
+;;             _ (prn (str first-head " -> layer " insert-idx))
             layers-new (if (= insert-idx (count layers))
                          (conj layers [first-pair])
                          (update  layers insert-idx #(conj % first-pair)))]
@@ -116,6 +126,7 @@
                                  (map #(get-syms-used id %))
                                  (apply mergex))
                   layers (layer-let pairs)
+;;                   _ (do-prn  layers)
                   layers-height (reduce + (map #(apply max (map  get-height (map second %))) layers))
                   layers-width (apply max (map #(reduce + (map get-width (map second %))) layers))
                   height (+ layers-height (get-height final))
@@ -139,8 +150,7 @@
                 :width (->>  forms
                             (map get-width)
                             (reduce +)
-                            (max 1)
-                            )
+                            (max 1))
                 :syms-used (->> forms
                                  (map #(get-syms-used id %))
                                  (apply mergex))))
@@ -200,7 +210,7 @@
                 (assoc inner-model :pred pred-new :then then-new :else else-new))
 
               (= head 'let)
-              (let [{:keys [layers final]} inner-model
+              (let [{:keys [layers final width]} inner-model
                     new-layers
                     (vec (for [i (range (count layers))]
                            (vec (for [j (range (count (nth layers i)))]
@@ -208,9 +218,11 @@
                                         pair (nth layer j)
                                         layers-up-to (take i layers)
                                         pairs-up-to (take j layer)
+                                        width-before (or (reduce +  (map #(:width (second %)) pairs-up-to)) 0)
+                                        layer-width (reduce +  (map #(:width (second %)) layer))
                                         y (or (reduce + (for [layer layers-up-to]
                                                           (apply max (map #(:height (second %)) layer)))) 0)
-                                        x (or (reduce +  (map #(:width (second %)) pairs-up-to)) 0)
+                                        x (+ width-before (* 0.5 (- width layer-width)))
                                         pair-rel (list x y)
                                         pair-abs (map + coords-abs pair-rel)]
                                     (if (map? (second pair))
@@ -219,7 +231,7 @@
                                                               :coords-abs pair-abs))
                                       pair))))))
                     final-x (+ (* 0.5 width) (* -0.5 (get-width final)))
-                    final-y (count layers)
+                    final-y (reduce +  (for [layer layers] (apply max (map #(:height (second %)) layer))))
                     final-rel (list final-x final-y)
                     final-abs (map + coords-abs final-rel)]
                 (assoc inner-model
