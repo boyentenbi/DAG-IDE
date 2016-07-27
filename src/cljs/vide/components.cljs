@@ -555,43 +555,85 @@
         (cond
 
           (and
-           (:anc-changed inner)
+            (:anc-changed inner)
             (= head 'if))
           (let [{:keys [pred then else]} inner
                 [pred-new then-new else-new] (map #(if (map? %)
                                                      (assoc %
-                                                 :raw-input nil
-                                                 :evaluation nil
-                                                 :anc-changed true)
+                                                       :raw-input nil
+                                                       :evaluation nil
+                                                       :anc-changed true)
                                                      %) [pred then else])]
             (do (prn (str (get inner :id) " has anc-changed, setting anc changed for children: "
                           (map #(or (:id %) %) [pred then else])))
               (assoc inner :pred pred-new :then then-new :else else-new)))
 
           (= head 'let)
-          (if
-           (:anc-changed inner) ;; set all children
-            (let [{:keys [layers final]} inner
+          ;; set all children
+          (let [{:keys [layers final]} inner
                 all-pairs (for [layer layers pair layer] pair)
-                syms-removed (map second all-pairs)
-                layers-new (for [layer layers]
-                             (for [pair layer]
-                               (update pair 1 #(if (map? %)
-                                                 (assoc %
-                                                 :raw-input nil
-                                                 :evaluation nil
-                                                   :anc-changed true)
-                                                 %))))
-                  final-new (if (map? final)
-                              (assoc final :raw-input nil
-                                :evaluation nil
-                                :anc-changed true)
-                              final)]
-            (do (prn (str (get inner :id) " has anc-changed, setting anc changed for children: "
-                          (map #(or (:id %) %) (conj syms-removed final)) ))
-              (assoc inner :layers layers-new :final final-new)
-              ))
-            (let [])
+                syms-removed (map second all-pairs)]
+            (if (:anc-changed inner)
+              (let [layers-new (for [layer layers]
+                                 (for [pair layer]
+                                   (update pair 1 #(if (map? %)
+                                                     (assoc %
+                                                       :raw-input nil
+                                                       :evaluation nil
+                                                       :anc-changed true)
+                                                     %))))
+                    final-new (if (map? final)
+                                (assoc final
+                                  :raw-input nil
+                                  :evaluation nil
+                                  :anc-changed true)
+                                final)]
+                (do (prn (str (get inner :id) " has anc-changed, setting anc changed for children: "
+                              (map #(or (:id %) %) (conj syms-removed final))))
+                  (assoc inner :layers layers-new :final final-new)))
+              ;;____________________________________________________________
+              (let [_ (do-prn (str "pairs: " all-pairs ))
+                     bad-pairs (filter (fn [sym form]
+                                        (:anc-changed form)) all-pairs)
+                    _ (do-prn (str "bad pairs: " bad-pairs))
+                    add-bad-forms (mapcat
+                                    #(or
+                                       (when-let [layers (:layers %)]
+                                         (conj
+                                           (for [layer layers
+                                                 pair layer]
+                                             (second pair))
+                                           (:final %)))
+                                       (:forms %)
+                                       (when-let [pred (:pred %)]
+                                         (seq (list pred (:then %) (:else %)))))
+                                    (map second bad-pairs))
+                    add-bad-ids (for [form add-bad-forms] (or (get form :id) form))
+                    _ (prn (str "bad-ids: " add-bad-ids))]
+
+                (w/postwalk #(cond
+
+                               (and (map? %)
+                                    (:id %)
+                                    ((set add-bad-ids) (:id %)))
+                               (assoc % :anc-changed true)
+
+                               (and (sequential? %)
+                                    (= 2 (count %)) ;; looking for
+                                    ((set add-bad-ids) (first %)))
+                               (update % 1 (fn [thing] (assoc thing
+                                                         :raw-input nil
+                                                         :evaluation nil
+                                                         :anc-changed true)) )
+
+                               :else %
+                               )
+                            inner)
+
+                )
+              ;;___________________________________________________________
+;;               inner
+              )
             )
 
           (and
@@ -601,60 +643,66 @@
                 forms-new  (for [form forms]
                              (if (map? form)
                                (assoc form
-                               :raw-input nil
-                               :evaluation nil
-                               :anc-changed true)
+                                 :raw-input nil
+                                 :evaluation nil
+                                 :anc-changed true)
                                form))]
             (do (prn (str (get inner :id) " has anc-changed, setting anc changed for children: "
                           (map #(or (:id %) %) forms) ))
-              (assoc inner :forms forms-new)))))
+              (assoc inner :forms forms-new)))
+          :else inner))
     inner))
 
-(defn set-anc-vals [inner]
-  (if (and (map?  inner)
-           (:syms-used inner))
-    (do (prn (str "setting anc changed for " (get inner :id) "  " ))
-      (let [{:keys [head]} inner]
-        (cond
 
-          (= head 'if)
-          (let [{:keys [pred then else]} inner]
-            (do (prn (str "checking children: " (map #(or (:id %) %) [pred then else]) " for desc changes"))
-              (if (some true?  (map :anc-changed [pred then else]) )
-                (do (prn (str (get inner :id) " had a desc change. "))
-                  (assoc inner
-                    :raw-input nil
-                    :evaluation nil
-                    :anc-changed true))
-                (assoc inner
-                  :anc-changed false))))
 
-          (= head 'let)
-          (let [{:keys [layers final]} inner
-                all-pairs (for [layer layers pair layer] pair)
-                syms-removed (map second all-pairs)]
-            (do (prn (str "checking children: " (map #(or (:id %) %) (conj syms-removed final)) " for desc changes" ))
-              (if (some true? (map :anc-changed (conj syms-removed final)))
-                (do (prn (str (get inner :id) " had a desc change. "))
-                  (assoc inner
-                    :raw-input nil
-                    :evaluation nil
-                    :anc-changed true))
-                (assoc inner
-                  :anc-changed false))))
 
-          (ifn? head)
-          (let [{:keys [forms]} inner]
-            (do (prn (str "checking children: " (map #(or (:id %) %) forms) " for desc changes"))
-              (if (some true? (map :anc-changed forms) )
-                (do (prn (str (get inner :id) " had a desc change. "))
-                  (assoc inner
-                    :raw-input nil
-                    :evaluation nil
-                    :anc-changed true))
-                (assoc inner
-                  :anc-changed false))))
-          :else inner)))))
+
+
+;; (defn set-anc-vals [inner]
+;;   (if (and (map?  inner)
+;;            (:syms-used inner))
+;;     (do (prn (str "setting anc changed for " (get inner :id) "  " ))
+;;       (let [{:keys [head]} inner]
+;;         (cond
+
+;;           (= head 'if)
+;;           (let [{:keys [pred then else]} inner]
+;;             (do (prn (str "checking children: " (map #(or (:id %) %) [pred then else]) " for desc changes"))
+;;               (if (some true?  (map :anc-changed [pred then else]) )
+;;                 (do (prn (str (get inner :id) " had a desc change. "))
+;;                   (assoc inner
+;;                     :raw-input nil
+;;                     :evaluation nil
+;;                     :anc-changed true))
+;;                 (assoc inner
+;;                   :anc-changed false))))
+
+;;           (= head 'let)
+;;           (let [{:keys [layers final]} inner
+;;                 all-pairs (for [layer layers pair layer] pair)
+;;                 syms-removed (map second all-pairs)]
+;;             (do (prn (str "checking children: " (map #(or (:id %) %) (conj syms-removed final)) " for desc changes" ))
+;;               (if (some true? (map :anc-changed (conj syms-removed final)))
+;;                 (do (prn (str (get inner :id) " had a desc change. "))
+;;                   (assoc inner
+;;                     :raw-input nil
+;;                     :evaluation nil
+;;                     :anc-changed true))
+;;                 (assoc inner
+;;                   :anc-changed false))))
+
+;;           (ifn? head)
+;;           (let [{:keys [forms]} inner]
+;;             (do (prn (str "checking children: " (map #(or (:id %) %) forms) " for desc changes"))
+;;               (if (some true? (map :anc-changed forms) )
+;;                 (do (prn (str (get inner :id) " had a desc change. "))
+;;                   (assoc inner
+;;                     :raw-input nil
+;;                     :evaluation nil
+;;                     :anc-changed true))
+;;                 (assoc inner
+;;                   :anc-changed false))))
+;;           :else inner)))))
 
 (defn update-model [input-node-id raw-input evaluation [args model]]
   "An inner model's dependencies are its children AS A MODEL. E.g a 'let' depends on its layers.
