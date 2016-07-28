@@ -58,7 +58,7 @@
                                    (let [prod-new  (* prod n)
                                          n-new (dec n)]
                                      (fact prod-new n-new))))"
-    "(defn nested-let [x] (let [y (+ x x) a (inc y) b (dec (dec y)) c (repeat 5 (+ a b))]  c))"))
+    "(defn nested-let [x] (let [y (+ x x) a (inc y) b (dec (* 3 y)) c (repeat 5 (- a b))]  c))"))
 
 (defn load-node-defs []
   (let [code pretend-code
@@ -548,109 +548,169 @@
                  [(node-view2 head-x head-y (str head))]
                  edge-groups))))
 
+
+
 (defn set-anc-changed [inner]
   (if (and (map? inner)
-          ( :syms-used inner))
-    (let [{:keys [head]} inner]
-        (cond
+           (:id inner))
+    (let [{:keys [head id]} inner]
+      (cond
 
-          (and
-            (:anc-changed inner)
-            (= head 'if))
-          (let [{:keys [pred then else]} inner
-                [pred-new then-new else-new] (map #(if (map? %)
-                                                     (assoc %
-                                                       :raw-input nil
-                                                       :evaluation nil
-                                                       :anc-changed true)
-                                                     %) [pred then else])]
-            (do (prn (str (get inner :id) " has anc-changed, setting anc changed for children: "
-                          (map #(or (:id %) %) [pred then else])))
-              (assoc inner :pred pred-new :then then-new :else else-new)))
+        (= head 'if)
+        (let [{:keys [pred then else]} inner
+              [pred-new then-new else-new] (map #(if (and (map? %)
+                                                          (:anc-changed inner))
+                                                   (assoc %
+                                                     :raw-input nil
+                                                     :evaluation nil
+                                                     :anc-changed true)
+                                                   %) [pred then else])
+              bad-syms (mapcat #(or (get % :bad-syms)
+                                    (when (:anc-changed inner) [%])) [pred then else])]
+;;           (prn (str "bad-syms for " id ": " bad-syms))
+;;           (when (:anc-changed inner)
+;;             (prn (str (get inner :id) " has anc-changed, setting anc changed for children: "
+;;                         (map #(or (:id %) %) [pred then else]))))
+            (assoc inner :pred pred-new :then then-new :else else-new :bad-syms bad-syms))
 
-          (= head 'let)
-          ;; set all children
-          (let [{:keys [layers final]} inner
-                all-pairs (for [layer layers pair layer] pair)
-                syms-removed (map second all-pairs)]
-            (if (:anc-changed inner)
-              (let [layers-new (for [layer layers]
-                                 (for [pair layer]
-                                   (update pair 1 #(if (map? %)
-                                                     (assoc %
-                                                       :raw-input nil
-                                                       :evaluation nil
-                                                       :anc-changed true)
-                                                     %))))
-                    final-new (if (map? final)
-                                (assoc final
-                                  :raw-input nil
-                                  :evaluation nil
-                                  :anc-changed true)
-                                final)]
-                (do (prn (str (get inner :id) " has anc-changed, setting anc changed for children: "
-                              (map #(or (:id %) %) (conj syms-removed final))))
-                  (assoc inner :layers layers-new :final final-new)))
+        (= head 'let)
+        ;; set all children
+        (let [{:keys [layers final]} inner
+              all-pairs (for [layer layers pair layer] pair)
+              syms-removed (map second all-pairs)
+              bad-syms (mapcat #(or (get % :bad-syms)
+                                    (when (:anc-changed inner) [%])) (conj syms-removed final))]
+;;           (prn (str "bad-syms for " id ": " bad-syms))
+
+          (let [layers-new (for [layer layers]
+                             (for [pair layer]
+                               ((fn [[sym form]] [sym (if (or ((set bad-syms) sym)
+                                                              (:anc-changed inner))
+                                                        (assoc form
+                                                          :raw-input nil
+                                                          :evaluation nil
+                                                          :anc-changed true)
+                                                        form)]) pair)))
+;;                 layers-new-new (w/postwalk #(if (and (map? %)
+;;                                                      (:id %))
+;;                                               ) layers)
+                final-new (if (and (map? final)
+                                   (:anc-changed inner))
+                            (assoc final
+                              :raw-input nil
+                              :evaluation nil
+                              :anc-changed true)
+                            final)]
+;;             (when (:anc-changed inner)
+;;               (prn (str id " has anc-changed, setting anc changed for children: "
+;;                       (map #(or (:id %) %) (conj syms-removed final)))))
+            (assoc inner :layers layers-new :final final-new :bad-syms bad-syms))
               ;;____________________________________________________________
-              (let [_ (do-prn (str "pairs: " all-pairs ))
-                     bad-pairs (filter (fn [sym form]
-                                        (:anc-changed form)) all-pairs)
-                    _ (do-prn (str "bad pairs: " bad-pairs))
-                    add-bad-forms (mapcat
-                                    #(or
-                                       (when-let [layers (:layers %)]
-                                         (conj
-                                           (for [layer layers
-                                                 pair layer]
-                                             (second pair))
-                                           (:final %)))
-                                       (:forms %)
-                                       (when-let [pred (:pred %)]
-                                         (seq (list pred (:then %) (:else %)))))
-                                    (map second bad-pairs))
-                    add-bad-ids (for [form add-bad-forms] (or (get form :id) form))
-                    _ (prn (str "bad-ids: " add-bad-ids))]
+;;               (let [ _ (do-prn (str "children ids: " (map (comp :id second) all-pairs) ))
+;; ;;                      _ (do-prn (str "anc-changed of children: "
+;; ;;                                     (map (fn [[sym form]] [(get form :id) (get form :anc-changed)]) all-pairs)))
+;;                      bad-pairs (filter (fn [[sym form]]
+;;                                         (= true (:anc-changed form))) all-pairs)
+;;                     _ (do-prn (str "init bad pairs: " (map (fn [[sym form]] [sym (get form :id)]) bad-pairs)))
+;;                     add-bad-forms (mapcat
+;;                                     #(or
+;;                                        (when-let [layers (:layers %)]
+;;                                          (conj
+;;                                            (for [layer layers
+;;                                                  pair layer]
+;;                                              (second pair))
+;;                                            (:final %)))
+;;                                        (:forms %)
+;;                                        (when-let [pred (:pred %)]
+;;                                          (seq (list pred (:then %) (:else %)))))
+;;                                     (map second bad-pairs))
+;;                     add-bad-ids (for [form add-bad-forms] (or (get form :id) form))
+;;                     _ (prn (str "add-bad-ids: " add-bad-ids))]
 
-                (w/postwalk #(cond
+;;                 (do
+;;                   (prn (str "postwalking " id
+;;                               ". Setting anc-changed of " add-bad-ids
+;;                               " to true"))
+;;                   (w/postwalk #(cond
+;;                                  (and (map? %)
+;;                                       (:id %)
+;;                                       ((set add-bad-ids) (:id %))
+;;                                      (not (:anc-changed %) ))
+;;                                  (do (prn (str "setting anc-changed of "
+;;                                                (:id %)
+;;                                                "to true because it is one of the add-bad-ids"))
+;;                                    (assoc % :anc-changed true))
 
-                               (and (map? %)
-                                    (:id %)
-                                    ((set add-bad-ids) (:id %)))
-                               (assoc % :anc-changed true)
+;;                                  (= (:head %) 'let)
 
-                               (and (sequential? %)
-                                    (= 2 (count %)) ;; looking for
-                                    ((set add-bad-ids) (first %)))
-                               (update % 1 (fn [thing] (assoc thing
-                                                         :raw-input nil
-                                                         :evaluation nil
-                                                         :anc-changed true)) )
+;;                                    (let [layers-new
+;;                                          (vec (for [layer (:layers %)]
+;;                                                 (vec (for [pair layer]
+;;                                                        (if ( (set add-bad-ids)  (first pair))
+;;                                                          (do (prn (str "setting anc-changed of " [(first pair) (:id (second pair))]
+;;                                                                        " to true because it had a bad symbol"))
+;;                                                            (update pair 1 (fn [form] (assoc form
+;;                                                                                        :raw-input nil
+;;                                                                                        :evaluation nil
+;;                                                                                        :anc-changed true)) ))
+;;                                                          pair)))))]
+;;                                      (assoc % :layers layers-new)
+;;                                      )
 
-                               :else %
-                               )
-                            inner)
+;;                                  :else % )
+;;                               inner)
+;;                   ;;                   (w/postwalk #(cond
 
-                )
+;;                   ;;                                 (and (map? %)
+;;                   ;;                                      (:id %)
+;; ;;                                      ((set add-bad-ids) (:id %))
+;; ;;                                      (not (:anc-changed %)))
+;; ;;                                 (do (prn (str "setting anc-changed of " (:id %) "to true because it is one of the add-bad-ids"))
+;; ;;                                   (assoc % :anc-changed true))
+
+;; ;;                                 (get % :layers)
+;; ;;                                   (do (prn (str (:id %) " has layers, checking for bad symbols."))
+;; ;;                                     (vec (for [layer layers]
+;; ;;                                     (vec (for [pair layer]
+;; ;;                                       (if ((set add-bad-ids)  (first pair))
+;; ;;                                         (do (prn (str "setting anc-changed of " [(first pair) (:id (second pair))]
+;; ;;                                                       " to true because it had a bad symbol"))
+;; ;;                                           (update pair 1 (fn [form] (assoc form
+;; ;;                                                             :raw-input nil
+;; ;;                                                             :evaluation nil
+;; ;;                                                             :anc-changed true)) ))
+;; ;;                                         pair))))))
+;; ;;                                 :else %)
+;; ;;                               inner)
+;;                 )
+
+;;                 )
               ;;___________________________________________________________
-;;               inner
-              )
-            )
 
-          (and
-            (:anc-changed inner)
-            (ifn? head))
-          (let [{:keys [forms]} inner
-                forms-new  (for [form forms]
-                             (if (map? form)
-                               (assoc form
-                                 :raw-input nil
-                                 :evaluation nil
-                                 :anc-changed true)
-                               form))]
-            (do (prn (str (get inner :id) " has anc-changed, setting anc changed for children: "
-                          (map #(or (:id %) %) forms) ))
-              (assoc inner :forms forms-new)))
-          :else inner))
+          )
+
+        (ifn? head)
+        (let [{:keys [forms]} inner
+               bad-syms (remove nil? (mapcat #(or (get % :bad-syms)
+                                    (when (:anc-changed inner) [%])) forms))
+              forms-new  (for [form forms]
+                           (if (and (map? form)
+                                  (:id form)
+                                  (:anc-changed inner))
+                             (assoc form
+                               :raw-input nil
+                               :evaluation nil
+                               :anc-changed true)
+                             ;; instead of identity for non-maps (symbols), find the pairs for which
+                             ;; they are the symbol and set anc changed for the pair's form.
+
+                             form))]
+;;           (prn (str "bad-syms for " id ": " bad-syms))
+;;           (when (:anc-changed inner) (prn (str (get inner :id) " has anc-changed, setting anc changed for children: "
+;;                     (map #(or (:id %) %) forms) )))
+          (assoc inner :forms forms-new :bad-syms bad-syms))
+
+        :else inner))
     inner))
 
 
@@ -721,8 +781,9 @@
             (and (map? inner)
                    (= (get inner :id) input-node-id))
             (do
-              (prn (str "changing input for " input-node-id " to: " raw-input))
-              (prn (str "with evaluation: " evaluation))
+;;               (prn (str "changing input for " input-node-id " to: " raw-input))
+;;               (prn (str "with evaluation: " evaluation))
+;;               (prn (str "set anc-changed for " (get inner :id) " to true"))
               (assoc inner
                 :raw-input raw-input
                 :evaluation evaluation
@@ -734,8 +795,10 @@
 
             :else inner)))
       ;;  set :anc-changed on descendants
-      (w/prewalk
-        set-anc-changed)
+    ((fn [thing] (let [new-thing (w/postwalk set-anc-changed thing)]
+                   (if (= new-thing thing)
+                     thing
+                     (recur new-thing)))))
 ;;     (w/postwalk
 ;;       set-desc-vals)
       (conj [args])))
@@ -883,10 +946,12 @@
                    :position "relative"}}
 ;;      [:input {:type "text"
 ;;               :style {:z-index 1}}]
-     [:div {:style {:position "absolute"
-                    :width "100%"
-                    :height "100%"
-                    :font-size 0.15}}
+     [:div {:style {
+;;                      :position "absolute"
+                    :width "50%"
+;;                     :height "100%"
+                    :font-size 0.15
+                    :margin "auto"}}
        inputs]
      [:svg {:width "100%"
             :height "100%"
