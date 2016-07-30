@@ -552,41 +552,33 @@
   (if (and (map? inner)
            (:id inner))
     (let [{:keys [head id sym-vals eval? evaluation]} inner]
-;;       (prn id "has eval? " eval?)
       (cond
         (= head 'if)
         (let [{:keys [pred then else]} inner
-              eval-then (and eval? (:evaluation pred))
-              eval-else (and eval? (not (:evaluation pred)))
-
-              evaluation-new (when eval?
-                               (if eval-then
-                                 (:evaluation then)
-                                 (:evaluation else)))
-               eval?-new (if evaluation-new false true)
-;;               _ (when (not= eval?-new eval?)
-;;                   (prn (str "eval?-new for " id " is " eval?-new)))
+              eval?-then (and eval? (:evaluation pred))
+              eval?-else (and eval? (not (:evaluation pred)))
               [pred-new then-new else-new] (map #(if (map? %)
                                                    (assoc %
-                                                     :sym-vals sym-vals)
+                                                     :sym-vals sym-vals
+                                                     :eval?)
                                                    %)
-                                                [pred then else])]
-;;           (when (not= eval? eval?-new)
-;;             (prn (str "changing eval? of " id " from " eval? " to " eval?-new)))
+                                                [pred then else]
+                                                [eval? eval?-then eval?-else])
+              evaluation-new (when eval?
+                               (if eval?-then
+                                 (:evaluation then)
+                                 (:evaluation else)))]
           (assoc inner
             :pred pred-new
             :then then-new
             :else else-new
             :evaluation evaluation-new
-            :eval? eval?-new))
+            ))
 
         (= head 'let)
         ;; set all children
         (let [{:keys [layers final]} inner
-              evaluation-new (:evaluation final)
-               eval?-new (:eval? final)
-;;               _ (when (not= eval?-new eval?)
-;;                   (prn (str "eval?-new for " id " is " eval?-new)))
+              evaluation-new (or (:evaluation final) (sym-vals final))
               layers-new (for [layer layers]
                            (for [[sym form] layer]
                              [sym (if (map? form)
@@ -601,53 +593,53 @@
                                 (filter  #(:evaluation (second %)))
                                 (map (fn [[sym form]] [sym (:evaluation form)]))
                                 (into {}))
-;;               _ (when-not (empty? add-sym-vals)
-;;                   (prn (str "add-sym-vals from " id " is " add-sym-vals)))
+              ;;               _ (when-not (empty? add-sym-vals)
+              ;;                   (prn (str "add-sym-vals from " id " is " add-sym-vals)))
               sym-vals-new (merge sym-vals add-sym-vals)]
-;;           (when (not= eval? eval?-new)
-;;             (prn (str "changing eval? of " id " from " eval? " to " eval?-new)))
-            (assoc inner
-              :layers layers-new
-              :final final-new
-              :sym-vals sym-vals-new
-              :evaluation evaluation-new
-              :eval? eval?-new))
+          (assoc inner
+            :layers layers-new
+            :final final-new
+            :sym-vals sym-vals-new
+            :evaluation evaluation-new))
 
         (ifn? head)
         (let [{:keys [forms]} inner
+;;               _ (prn (str "checking if " id " is ready. Has forms: " (map #(or (:id %) %) forms)))
+;;               _ (prn (str "Attempts at evaluating forms are " (map #(or (:evaluation %)
+;;                                      (get sym-vals %)
+;;                                      (when (and (not (:id %)) (not (symbol? %))) %)) forms)
+;;                           )
+;;                      )
+;;               _ (prn (str "are any symbols? " (map symbol? forms)))
+
               is-ready (every? #(or (:evaluation %)
                                     (get sym-vals %)
-                                    (and (not (:id %)) (not (symbol? %)))) forms)
+                                    (and (not (:id %))
+                                         (not (symbol? %)))) forms)
               evaluation-new
-              (if (and eval?
-                         is-ready)
-
-                (let [args (map #(or (:evaluation %)
+              (if (and eval? is-ready (not evaluation))
+                (let [
+;;                        _ (prn (str "Ready at " id " with forms " (map #(or (:id %) %) forms)))
+                      args (map #(or (:evaluation %)
                                      (get sym-vals %)
                                      (when (and (not (:id %)) (not (symbol? %))) %)) forms)
                       form (cons head args)
-                      ;;                       value (try-eval form)
-                      value (apply (try-eval head) args)]
-                  (prn (str "Ready at " id " with forms " (map #(or (:id %) %) forms)
-                            ". Evaluated " form " to " value))
+;;                       _ (prn "evaluating whole form")
+;;                       value (time (try-eval form))
+;;                       _ (prn "evaluating head and applying")
+                      value  (apply (try-eval head) args)
+                      ]
+;;                   (prn (str "Evaluated " form " to " value))
                   value)
                 evaluation)
 
-              eval?-new (if (and eval? is-ready) false eval?)
-              ;;               _ (when (not= eval?-new eval?)
-              ;;                   (prn (str "eval?-new for " id " is " eval?-new)))
-
               forms-new (map #(if (map? %)
                                 (assoc % :sym-vals sym-vals )
-                                %) forms)
-              ]
-;;           (when (not= eval? eval?-new)
-;;             (prn (str "changing eval? of " id " from " eval? " to " eval?-new)))
+                                %) forms)]
 
           (assoc inner
             :forms forms-new
-            :evaluation evaluation-new
-            :eval? eval?-new))
+            :evaluation evaluation-new))
 
         :else inner))
     inner))
@@ -672,8 +664,9 @@
 
               [pred-new then-new else-new]
               (map #(assoc % :bad-symsx bad-symsx) [pred then else])
-              _ (prn (str id " has desc-changed: " desc-changed
-                          ". Setting evaluation of " id " to " evaluation-new))]
+;;               _ (prn (str id " has desc-changed: " desc-changed
+;;                           ". Setting evaluation of " id " to " evaluation-new))
+              ]
           (assoc inner
             :desc-changed desc-changed
             :raw-input raw-input-new
@@ -690,7 +683,7 @@
               bad-pairs (filter (fn [[sym form]] (:desc-changed form)) all-pairs)
               add-bad-symsx (map first bad-pairs)
               bad-symsx-new (distinct (concat add-bad-symsx bad-symsx))
-              _ (prn (str "identified bad symbols in set-desc-changed:  "))
+;;               _ (prn (str "identified bad symbols in set-desc-changed:  "))
               ;;           (prn (str "bad-symsx for " id ": " bad-symsx))
 
               layers-new (for [layer layers]
@@ -711,8 +704,9 @@
               evaluation-new (if desc-changed
                                nil
                                evaluation)
-              _ (prn (str id " has desc-changed: " desc-changed
-                          ". Setting evaluation of " id " to " evaluation-new))]
+;;               _ (prn (str id " has desc-changed: " desc-changed
+;;                           ". Setting evaluation of " id " to " evaluation-new))
+              ]
               (assoc inner
                 :layers layers-new
                 :final final-new
@@ -736,8 +730,9 @@
               evaluation-new (if desc-changed
                                nil
                                evaluation)
-              _ (prn (str id " has desc-changed: " desc-changed
-                          ". Setting evaluation of " id " to " evaluation-new))]
+;;               _ (prn (str id " has desc-changed: " desc-changed
+;;                           ". Setting evaluation of " id " to " evaluation-new))
+              ]
           (assoc inner
             :forms forms-new
             :desc-changed desc-changed
@@ -850,7 +845,7 @@
                             evaluation)
               :anc-changed true
               :desc-changed true
-              :eval? false
+              :eval? true
               :sym-vals {})
 
             (and (map? inner)
@@ -871,12 +866,12 @@
                    (if (= new-thing thing)
                      thing
                      (recur new-thing)))))
-;;     ((fn [thing] (let [new-thing (w/prewalk prop-values thing)]
-;;                    (if (= new-thing thing)
-;;                      thing
-;;                      (do
-;; ;;                        (prn "Recurring prop-values with " new-thing)
-;;                        (recur new-thing))))))
+    ((fn [thing] (let [new-thing (w/prewalk prop-values thing)]
+                   (if (= new-thing thing)
+                     thing
+                     (do
+;;                        (prn "Recurring prop-values with " new-thing)
+                       (recur new-thing))))))
     (conj [args])))
 
 (defn input-view2 [current-node input-inner head-x head-y ratio-w ratio-h]

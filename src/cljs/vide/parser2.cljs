@@ -8,7 +8,7 @@
 ;;                         [vide.helpers :refer [replace-seqs do-prn drop-nth mergex
 ;;                                              find-indices first? firstx evalx wrap invert-noninj]]
             [clojure.zip :refer [zipper]]
-            [vide.helpers :refer [do-prn firstx mergex ]]
+            [vide.helpers :refer [do-prn firstx mergex try-eval]]
             ))
 (enable-console-print!)
 
@@ -153,16 +153,9 @@
                             (max 1))
                 :syms-used (->> forms
                                  (map #(get-syms-used id %))
-                                 (apply mergex))))
-            ;;                       (= 'do head) (let [side-effects (:side-effects inner-labelled)]
-            ;;                                      (assoc inner-labelled
-            ;;                                        :height (->> side-effects
-            ;;                                                     (map #(cond
-            ;;                                                             (map? %) (:height %)
-            ;;                                                             (symbol? %) 1
-            ;;                                                             :else 1))
-            ;;                                                     (apply #(reduce + %))
-            ;;                                                     (inc))))
+                                 (apply mergex))
+                :fn (try-eval head)))
+
             ))
         inner-labelled)) labelled-form))
 
