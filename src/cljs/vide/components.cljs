@@ -623,11 +623,11 @@
                       args (map #(or (:evaluation %)
                                      (get sym-vals %)
                                      (when (and (not (:id %)) (not (symbol? %))) %)) forms)
-                      form (cons head args)
+;;                       form (cons head args)
 ;;                       _ (prn "evaluating whole form")
 ;;                       value (time (try-eval form))
 ;;                       _ (prn "evaluating head and applying")
-                      value  (apply (try-eval head) args)
+                      value  (apply (get inner :fn) args)
                       ]
 ;;                   (prn (str "Evaluated " form " to " value))
                   value)
@@ -840,9 +840,7 @@
                    (= (get inner :id) input-node-id))
             (assoc inner
               :raw-input raw-input
-              :evaluation (do
-                            (prn (str "setting val of " (get inner :id) " to " evaluation))
-                            evaluation)
+              :evaluation evaluation
               :anc-changed true
               :desc-changed true
               :eval? true

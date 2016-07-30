@@ -10,6 +10,7 @@
             [clojure.zip :refer [zipper]]
             [vide.helpers :refer [do-prn firstx mergex try-eval]]
             ))
+
 (enable-console-print!)
 
 (defn literal? [form]
@@ -18,7 +19,6 @@
     (and (list? form) (ifn? (first form))) false
     (some false? (map literal? form)) false
     :else true))
-
 
 (defn convert-seqs [form]
   "Convert any maps and vectors which use the special brace syntax"
