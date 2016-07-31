@@ -8,7 +8,7 @@
 ;;                         [vide.helpers :refer [replace-seqs do-prn drop-nth mergex
 ;;                                              find-indices first? firstx evalx wrap invert-noninj]]
             [clojure.zip :refer [zipper]]
-            [vide.helpers :refer [do-prn firstx mergex try-eval]]
+            [vide.helpers :refer [do-prn firstx mergex try-eval func-dict]]
             ))
 
 (enable-console-print!)
@@ -19,6 +19,39 @@
     (and (list? form) (ifn? (first form))) false
     (some false? (map literal? form)) false
     :else true))
+
+(defn try-if-sym [form]
+  (if (symbol? form)
+    (do
+;;       (prn (str form " is a symbol. Trying to find in func dict..."))
+      (or (func-dict form) form))
+    form))
+
+(defn eval-syms [model]
+  (w/prewalk
+    (fn [inner]
+      (if (and (map? inner)
+               (get inner :id))
+        (let [{:keys [head]} inner]
+          (cond
+
+            (= 'if head)
+            (let [{:keys [pred then else]} inner
+                  [pred-new then-new else-new] (map try-if-sym [pred then else])]
+              (assoc inner :pred pred-new :then then-new :else else-new))
+
+            (= 'let head)
+            (let [{:keys [layers]} inner
+                  layers-new (for [layer layers
+                                   [sym form] layer]
+                               (try-if-sym form))]
+              (assoc inner :layers layers-new))
+
+            (ifn? head)
+            (let [{:keys [forms]} inner
+                  forms-new (map try-if-sym forms)]
+              (assoc inner :forms forms-new))))
+        inner)) model))
 
 (defn convert-seqs [form]
   "Convert any maps and vectors which use the special brace syntax"
@@ -256,23 +289,11 @@
         ))))
 
 
-
-
-
-
-
-
-(def defn-form '(defn fact [prod n]
-                  (if (= n 1)
-                    prod
-                    (let [prod-new ( * prod n)
-                          n-new (dec n)]
-                 (fact prod-new n-new)))))
-
 (defn model-pipeline [form]
   (->> form
        (convert-seqs)
        (label-form)
+       (eval-syms)
        (connect-labelled)
        (assoc-coords)))
 

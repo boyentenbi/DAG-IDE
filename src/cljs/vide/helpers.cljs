@@ -4,6 +4,10 @@
             [cljs.js :refer [eval empty-state js-eval]]
             [cljs.pprint :refer [pprint]]))
 
+(def func-list [+ - * =  map reduce inc dec identity conj cons repeat])
+(def func-dict (zipmap ['+ '- '* '=  'map 'reduce 'inc 'dec 'identity 'conj 'cons 'repeat]
+                       [+ - * =  map reduce inc dec identity conj cons repeat]))
+
 (defn do-prn [a]
   (do (pprint a) a))
 
@@ -22,12 +26,13 @@
     thing))
 
 (defn evalx [form]
-  (eval (empty-state)
+  (or (func-dict form)
+    (eval (empty-state)
         form
         {:eval       js-eval
          :source-map true
          :context    :expr}
-        (fn [result] (:value result))))
+        (fn [result] (:value result)))))
 
 
 (defn eval-str [s]
