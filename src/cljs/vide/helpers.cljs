@@ -8,6 +8,13 @@
 (def func-dict (zipmap ['+ '- '* '=  'map 'reduce 'inc 'dec 'identity 'conj 'cons 'repeat]
                        [+ - * =  map reduce inc dec identity conj cons repeat]))
 
+(defn recursive-wrap [func]
+  (fn [thing]
+    (let [new-thing (func thing)]
+      (if (= new-thing thing)
+      thing
+      (recur new-thing)))))
+
 (defn do-prn [a]
   (do (pprint a) a))
 

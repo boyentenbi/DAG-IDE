@@ -23,7 +23,6 @@
 (defn try-if-sym [form]
   (if (symbol? form)
     (do
-;;       (prn (str form " is a symbol. Trying to find in func dict..."))
       (or (func-dict form) form))
     form))
 
@@ -75,20 +74,15 @@
 (defn get-insertion-idx [layers pair]
   (let [form  (second pair)
         form-id  (get form :id)
-;;         _ (prn "syms-used: ")
         syms-used  (apply concat (vals (:syms-used form)))]
     (loop [checking-idx (count layers)]
       (do
-;;         (prn (str "checking idx " checking-idx))
         (if (= checking-idx 0)
         (do
-;;           (prn "reached bottom, insert at 0")
           0)
         (let [layer-below (nth layers (dec checking-idx))]
-;;           (prn (str "layer below: " layer-below))
           (if (some (set (map first layer-below)) syms-used)
             (do
-;;               (prn (str "layer below has used a sym, insert at " checking-idx))
               checking-idx)
             (recur (dec checking-idx)))))))))
 
@@ -99,10 +93,8 @@
       layers
       (let [first-pair (first remaining-pairs)
             first-head (:head (second first-pair))
-;;             _ (prn first-head)
             rest-pairs (rest remaining-pairs)
             insert-idx  (get-insertion-idx layers first-pair)
-;;             _ (prn (str first-head " -> layer " insert-idx))
             layers-new (if (= insert-idx (count layers))
                          (conj layers [first-pair])
                          (update  layers insert-idx #(conj % first-pair)))]
@@ -128,17 +120,14 @@
   (w/postwalk
     (fn [inner-labelled]
       (if (map? inner-labelled)
-        (let [head (:head inner-labelled)
-              id (:id inner-labelled)] ;; we have these keys regardless of the head type
+        (let [{:keys [head id]} inner-labelled] ;; we have these keys regardless of the head type
           (cond
 
             (:syms-used inner-labelled)
             inner-labelled ;; if already done, don't do it again!
 
             (= 'if head)
-            (let [pred (:pred inner-labelled)
-                  then (:then inner-labelled)
-                  else (:else inner-labelled)] ;; 3 forms if we have an 'if' head
+            (let [{:keys [pred then else]} inner-labelled] ;; 3 forms if we have an 'if' head
               (assoc inner-labelled
                 :height (+ (max (get-height then)
                                 (get-height else))
@@ -159,7 +148,6 @@
                                  (map #(get-syms-used id %))
                                  (apply mergex))
                   layers (layer-let pairs)
-;;                   _ (do-prn  layers)
                   layers-height (reduce + (map #(apply max (map  get-height (map second %))) layers))
                   layers-width (apply max (map #(reduce + (map get-width (map second %))) layers))
                   height (+ layers-height (get-height final))
@@ -201,7 +189,7 @@
       (fn [inner-model]
         (if (and (map? inner-model)
                  (:syms-used inner-model))
-            (let [{:keys [height width head coords-abs coords-rel]} inner-model]
+            (let [{:keys [id height width head coords-abs coords-rel]} inner-model]
             (cond
               (= head 'if )
               (let [{:keys [pred then else]} inner-model
@@ -221,17 +209,20 @@
                     pred-new (if (map? pred)
                                (assoc pred
                                  :coords-rel pred-rel
-                                 :coords-abs pred-abs)
+                                 :coords-abs pred-abs
+                                 :parent-id id)
                                  pred)
                     then-new (if (map? then)
                                (assoc then
                                  :coords-rel then-rel
-                                 :coords-abs then-abs)
+                                 :coords-abs then-abs
+                                 :parent-id id)
                                then)
                     else-new (if (map? else)
                                (assoc else
                                  :coords-rel else-rel
-                                 :coords-abs else-abs)
+                                 :coords-abs else-abs
+                                 :parent-id id)
                                else)]
                 (assoc inner-model :pred pred-new :then then-new :else else-new))
 
@@ -254,7 +245,8 @@
                                     (if (map? (second pair))
                                       (update (vec pair) 1 #(assoc %
                                                               :coords-rel pair-rel
-                                                              :coords-abs pair-abs))
+                                                              :coords-abs pair-abs
+                                                              :parent-id id))
                                       pair))))))
                     final-x (+ (* 0.5 width) (* -0.5 (get-width final)))
                     final-y (reduce +  (for [layer layers] (apply max (map #(:height (second %)) layer))))
@@ -281,7 +273,8 @@
                                       form-new (if (map? form)
                                                  (assoc form
                                                    :coords-rel form-rel
-                                                   :coords-abs form-abs)
+                                                   :coords-abs form-abs
+                                                   :parent-id id)
                                                  form)]
                                   form-new))]
                 (assoc inner-model :forms forms-new))))
@@ -301,5 +294,5 @@
 (defn parse-defn [defn-form]
   (let
     [[_ func-name args form]  defn-form]
-    [args (model-pipeline form)]))
+    [(into {} (map #(vector % nil) args)) (model-pipeline form)]))
 

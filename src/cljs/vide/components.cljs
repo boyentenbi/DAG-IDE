@@ -5,29 +5,14 @@
             [clojure.walk :as w]
 ;;             [reanimated.core :as anim]
             [cljs.reader :refer [read-string]]
-            [clojure.set :refer [rename-keys]]
-;;             [slurp.core :include-macros true :refer [slurp]]
-            [vide.helpers :refer [try-eval try-read do-prn drop-nth find-indices first? firstx]]
-            [vide.drawer :refer [childless? get-best-layers coords-from-layers get-activated]]
-            [vide.parser :refer [parse-defn-let]]
-            [vide.parser2 :refer [literal? model-pipeline parse-defn assoc-coords get-height get-width]]
+            [vide.helpers :refer [recursive-wrap try-eval try-read do-prn
+                                  drop-nth find-indices first? firstx]]
+            [vide.parser2 :refer [literal? model-pipeline parse-defn assoc-coords
+                                  get-height get-width]]
+            [vide.propagation :refer [prop-values set-desc-changed set-anc-changed
+                                      model-update-input model-update-arg-input  update-model]]
             ))
-;; ----------------------------------------style params----------------------------------------------
 
-(enable-console-print!)
-
-;; (def node-h 9)
-;; (def node-w 12)
-;; (def spacing-right 22)
-;; (def spacing-down 18)
-;; (def same-edge-spacing (* 0.3 node-w))
-(def font-size 2)
-(def node-style {:fill "white"
-                   :stroke "orange"
-                   :stroke-width 0.8
-                   :opacity 1})
-(def node-text "black")
-(def arrow-fill "black")
 
 ;; ---------------------------------------- node definitions ----------------------------------------------
 
@@ -37,9 +22,6 @@
     "(defn square [x] (let [y (* x x)] y))"
 
     "(defn inc-vec [myvec] (let [incd (map inc myvec)] incd))"
-
-;;     "(defn square-vec [myvec] (let [squared (map square myvec)] squared))"
-    ;;     "(defn dupe [x] (let [duped [x x]] duped))"
 
     "(defn incincinc [x] (let [y (+ x x) \n
     a (inc y) \n
@@ -58,15 +40,22 @@
                                    (let [prod-new  (* prod n)
                                          n-new (dec n)]
                                      (fact prod-new n-new))))"
-    "(defn nested-let [x] (let [y (+ x x) a (inc y)
-    b (dec (* 3 y)) c (repeat 5 (- a b)) d (reduce + c)] d ))"))
+
+    "(defn nested-let [x] (let [y (+ x x)
+    a (inc y)
+    b (dec (* 3 y))
+    c (repeat 6 (- a b))
+    d (map square (repeat 6 b))
+    e (map + c d)
+    f (reduce + e)
+    g (square f)] g))"))
 
 (defn load-node-defs []
   (let [code pretend-code
         forms  (read-string (str \( pretend-code \) ))
-        defn-let-forms (filter #(= 'defn (first %)) forms) ;; for now this should be all there is
-        names (map #(str (second %)) defn-let-forms)
-        codes (map str defn-let-forms) ;;that name lol
+        defn-forms (filter #(= 'defn (first %)) forms)
+        names (map #(str (second %)) defn-forms)
+        codes (map str defn-forms) ;;that name lol
         compiled-codes  (map try-read codes)
         evald-codes (map try-eval (map #(cons 'fn %) (map #(drop 1 %) compiled-codes)))
         defs (map #(hash-map :code %1 :fn %2) codes
@@ -110,11 +99,6 @@
         (when-let [model (parse-defn (try-read new-text))]
             (do
               (swap! node-defs-atom #(assoc-in % [current-node :model] model))
-;;               (doseq [node-name (map :name (vals model))]
-;;                 (when-not #(some #{node-name} %) (keys @node-defs-atom)
-;;                   (swap! node-defs-atom #(assoc-in % [node-name :fn] (try-read node-name)))
-;;                   (prn "added " node-name " to node-defs"))
-;;                 )
               )
           ))
       ;;                                         (reset! node-defs-atom
@@ -149,6 +133,24 @@
                           (reagent/dom-node this))]
         (.appendChild node (.getWrapperElement @cm-atom))
         ))))
+
+;; ----------------------------------------style params----------------------------------------------
+
+(enable-console-print!)
+
+
+(def font-size 2)
+(def node-style {:fill "white"
+                   :stroke "orange"
+                   :stroke-width 0.8
+                   :opacity 1})
+(def node-text "black")
+(def arrow-fill "black")
+
+(def node-h2 0.46)
+(def node-w2 0.6)
+(def arrowhead-angle (/ 6.283 24))
+(def arrowhead-l 0.15)
 ;; ----------------------------------------basic views----------------------------------------------
 
 
@@ -199,11 +201,6 @@
    (conj (for [node (keys @node-defs-atom)]
            (dropdown-node node))
          [:option {:key "select-label"} "Choose node"])])
-
-(def node-h2 0.46)
-(def node-w2 0.6)
-(def arrowhead-angle (/ 6.283 24))
-(def arrowhead-l 0.15)
 
 (defn arrowhead-view [x y th col]
   (let [p1 (str x "," y)
@@ -316,10 +313,6 @@
                             [targ-form]
                             (when-let [targ-id (:id targ-form)]
                               (some #{sym} (targ-id (:syms-used targ-form))))) seqd)
-                ;;                 _ (prn (str "targets = "
-                ;;                             (map #(get % :head) targets )
-                ;;                             " at "
-                ;;                             (map #(get % :coords-abs) targets)))
                 endpoints (for [target targets]
                             (map + [(* 0.5 (get-width target))
                                       (- (get-height target) (+ node-h2 (* 0.5 (- 1 node-h2))))]
@@ -338,10 +331,6 @@
   (let [{:keys [height width coords-rel coords-abs syms-used head forms]} basic-model
         head-x (- (* 0.5 width) 0.5)
         head-y (dec height)
-        ;;         _ (prn (str "head: " head))
-        ;;         _ (prn (str "coords-abs: " coords-abs))
-        ;;         _ (prn (str "form-heads: " (map #(or (get % :head) %) forms)))
-
         form-coords-abs (remove nil? (map :coords-abs forms))
         form-coords-rel (map #(map - % coords-abs) form-coords-abs)
         form-head-coords-rel (remove nil?
@@ -361,333 +350,33 @@
                  [(node-view2 head-x head-y (str head))]
                  edge-groups))))
 
-(defn prop-values [inner]
-  (if (and (map? inner)
-           (:id inner))
-    (let [{:keys [head id sym-vals eval? evaluation]} inner]
-      (cond
-        (= head 'if)
-        (let [{:keys [pred then else]} inner
-              eval?-then (and eval? (:evaluation pred))
-              eval?-else (and eval? (not (:evaluation pred)))
-              [pred-new then-new else-new] (map #(if (map? %)
-                                                   (assoc %
-                                                     :sym-vals sym-vals
-                                                     :eval?)
-                                                   %)
-                                                [pred then else]
-                                                [eval? eval?-then eval?-else])
-              evaluation-new (when eval?
-                               (if eval?-then
-                                 (:evaluation then)
-                                 (:evaluation else)))]
-          (assoc inner
-            :pred pred-new
-            :then then-new
-            :else else-new
-            :evaluation evaluation-new
-            ))
 
-        (= head 'let)
-        ;; set all children
-        (let [{:keys [layers final]} inner
-              evaluation-new (or (:evaluation final) (sym-vals final))
-              layers-new (for [layer layers]
-                           (for [[sym form] layer]
-                             [sym (if (map? form)
-                                    (assoc form
-                                      :sym-vals sym-vals)
-                                    form)] ))
-              final-new (if (map? final)
-                          (assoc final :sym-vals sym-vals)
-                          final)
-              all-pairs (for [layer layers pair layer] pair)
-              add-sym-vals (->> all-pairs
-                                (filter  #(:evaluation (second %)))
-                                (map (fn [[sym form]] [sym (:evaluation form)]))
-                                (into {}))
-              ;;               _ (when-not (empty? add-sym-vals)
-              ;;                   (prn (str "add-sym-vals from " id " is " add-sym-vals)))
-              sym-vals-new (merge sym-vals add-sym-vals)]
-          (assoc inner
-            :layers layers-new
-            :final final-new
-            :sym-vals sym-vals-new
-            :evaluation evaluation-new))
+(defn arg-input [x ratio-w ratio-h arg arg-sym current-node]
+  (let [ input-x (* ratio-w (- x (* 0.5 node-w2)))]
+    [:input {:type "text"
+           :value (or (:evaluation arg)
+                      (:raw-input arg))
+           :on-change (fn [this]
+                        (let [raw-input (-> this .-target .-value)
+                              evaluation  (try-read raw-input)]
 
-        (ifn? head)
-        (let [{:keys [forms]} inner
-;;               _ (do
-;;                   (prn (str "checking if " id " is ready. Has args: " (map #(or (:id %) %) forms)))
+                          (swap! node-defs-atom
+                                 (fn [node-defs-atom]
+                                   (-> node-defs-atom
+                                       (update-in [current-node :model 0 arg-sym]
+                                                  #(assoc % :raw-input raw-input
+                                                             :evaluation evaluation))
+                                       (update-in [current-node :model]
+                                                  #(model-update-arg-input % arg-sym raw-input evaluation)))))))
 
-;;                   (prn (str "are any symbols? " (map symbol? forms))))
-
-
-              is-ready (every? #(or (:evaluation %)
-                                    (get sym-vals %)
-                                    (and (not (:id %))
-                                         (not (symbol? %)))) forms)
-;;               _ (when-not is-ready
-;;                   (prn (str id " is not ready. Attempts at evaluating args are "
-;;                             (map #(or (:evaluation %)
-;;                                       (get sym-vals %)
-;;                                       (when-not (get % :id)
-;;                                                   %)) forms))))
-              evaluation-new
-              (if (and eval? is-ready (not evaluation))
-                (let [
-;;                        _ (prn (str "Ready at " id " with forms " (map #(or (:id %) %) forms)))
-                      args (map #(or (:evaluation %)
-                                     (get sym-vals %)
-                                     (when-not (get % :id) %)) forms)
-                      form (cons (get inner :fn) args)
-;;                       _ (prn "evaluating whole form")
-;;                       value (time (try-eval form))
-;;                       _ (prn "evaluating head and applying")
-                      value  (apply (get inner :fn) args)
-                      ]
-;;                   (prn (str "Evaluated " form " to " value))
-                  value)
-                evaluation)
-
-              forms-new (map #(if (map? %)
-                                (assoc % :sym-vals sym-vals )
-                                %) forms)]
-
-          (assoc inner
-            :forms forms-new
-            :evaluation evaluation-new))
-
-        :else inner))
-    inner))
-
-(defn set-desc-changed [inner]
-  (if (and (map? inner)
-           (:id inner))
-    (let [{:keys [head id raw-input evaluation bad-symsx]} inner]
-
-      (cond
-
-        (= head 'if)
-        (let [{:keys [pred then else]} inner
-              desc-changed (or (some :desc-changed [pred then else])
-                               (some (set bad-symsx) [pred then else]))
-              raw-input-new (if desc-changed
-                              nil
-                              raw-input)
-              evaluation-new (if desc-changed
-                               nil
-                               evaluation)
-
-              [pred-new then-new else-new]
-              (map #(assoc % :bad-symsx bad-symsx) [pred then else])
-;;               _ (prn (str id " has desc-changed: " desc-changed
-;;                           ". Setting evaluation of " id " to " evaluation-new))
-              ]
-          (assoc inner
-            :desc-changed desc-changed
-            :raw-input raw-input-new
-            :evaluation evaluation-new
-            :pred pred-new
-            :then then-new
-            :else else-new))
-
-        (= head 'let)
-        ;; set all children
-        (let [{:keys [layers final]} inner
-              all-pairs (for [layer layers pair layer] pair)
-              syms-removed (map second all-pairs)
-              bad-pairs (filter (fn [[sym form]] (:desc-changed form)) all-pairs)
-              add-bad-symsx (map first bad-pairs)
-              bad-symsx-new (distinct (concat add-bad-symsx bad-symsx))
-;;               _ (prn (str "identified bad symbols in set-desc-changed:  "))
-              ;;           (prn (str "bad-symsx for " id ": " bad-symsx))
-
-              layers-new (for [layer layers]
-                           (for [[sym form] layer]
-                             [sym (if (map? form)
-                                    (assoc form
-                                      :bad-symsx bad-symsx-new)
-                                    form)]))
-              final-new (if  (map? final)
-                          (assoc final
-                            :bad-symsx bad-symsx-new)
-                          final)
-              desc-changed (boolean (or (some :desc-changed (conj syms-removed final))
-                               (some (set bad-symsx) (conj syms-removed final))))
-              raw-input-new (if desc-changed
-                              nil
-                              raw-input)
-              evaluation-new (if desc-changed
-                               nil
-                               evaluation)
-;;               _ (prn (str id " has desc-changed: " desc-changed
-;;                           ". Setting evaluation of " id " to " evaluation-new))
-              ]
-              (assoc inner
-                :layers layers-new
-                :final final-new
-                :desc-changed desc-changed
-                :raw-input raw-input-new
-                :evaluation evaluation-new
-                ))
-
-        (ifn? head)
-        (let [{:keys [forms]} inner
-              desc-changed (boolean (or (some :desc-changed forms)
-                               (some (set bad-symsx) forms)))
-              forms-new  (for [form forms]
-                           (if (map? form)
-                             (assoc form
-                             :bad-symsx bad-symsx)
-                             form))
-              raw-input-new (if desc-changed
-                              nil
-                              raw-input)
-              evaluation-new (if desc-changed
-                               nil
-                               evaluation)
-;;               _ (prn (str id " has desc-changed: " desc-changed
-;;                           ". Setting evaluation of " id " to " evaluation-new))
-              ]
-          (assoc inner
-            :forms forms-new
-            :desc-changed desc-changed
-            :raw-input raw-input-new
-            :evaluation evaluation-new))
-
-        :else inner))
-    inner))
-
-(defn set-anc-changed [inner]
-  (if (and (map? inner)
-           (:id inner))
-    (let [{:keys [head id]} inner]
-      (cond
-
-        (= head 'if)
-        (let [{:keys [pred then else]} inner
-              [pred-new then-new else-new] (map #(if (and (map? %)
-                                                          (:anc-changed inner))
-                                                   (assoc %
-                                                     :raw-input nil
-                                                     :evaluation nil
-                                                     :anc-changed true)
-                                                   %) [pred then else])
-              bad-syms (mapcat #(or (get % :bad-syms)
-                                    (when (:anc-changed inner) [%])) [pred then else])]
-;;           (prn (str "bad-syms for " id ": " bad-syms))
-;;           (when (:anc-changed inner)
-;;             (prn (str (get inner :id) " has anc-changed, setting anc changed for children: "
-;;                         (map #(or (:id %) %) [pred then else]))))
-            (assoc inner :pred pred-new :then then-new :else else-new :bad-syms bad-syms))
-
-        (= head 'let)
-        ;; set all children
-        (let [{:keys [layers final]} inner
-              all-pairs (for [layer layers pair layer] pair)
-              syms-removed (map second all-pairs)
-              bad-syms (mapcat #(or (get % :bad-syms)
-                                    (when (:anc-changed inner) [%])) (conj syms-removed final))
-;;           (prn (str "bad-syms for " id ": " bad-syms))
-
-              layers-new (for [layer layers]
-                           (for [[sym form] layer]
-                             [sym (if (or ((set bad-syms) sym)
-                                          (:anc-changed inner))
-                                    (assoc form
-                                      :raw-input nil
-                                      :evaluation nil
-                                      :anc-changed true)
-                                    form)]))
-                final-new (if (and (map? final)
-                                   (:anc-changed inner))
-                            (assoc final
-                              :raw-input nil
-                              :evaluation nil
-                              :anc-changed true)
-                            final)]
-;;             (when (:anc-changed inner)
-;;               (prn (str id " has anc-changed, setting anc changed for children: "
-;;                       (map #(or (:id %) %) (conj syms-removed final)))))
-            (assoc inner :layers layers-new :final final-new :bad-syms bad-syms))
-
-        (ifn? head)
-        (let [{:keys [forms]} inner
-               bad-syms (remove nil? (mapcat #(or (get % :bad-syms)
-                                    (when (:anc-changed inner) [%])) forms))
-              forms-new  (for [form forms]
-                           (if (and (map? form)
-                                  (:id form)
-                                  (:anc-changed inner))
-                             (assoc form
-                               :raw-input nil
-                               :evaluation nil
-                               :anc-changed true)
-                             ;; instead of identity for non-maps (symbols), find the pairs for which
-                             ;; they are the symbol and set anc changed for the pair's form.
-
-                             form))]
-;;           (prn (str "bad-syms for " id ": " bad-syms))
-;;           (when (:anc-changed inner) (prn (str (get inner :id) " has anc-changed, setting anc changed for children: "
-;;                     (map #(or (:id %) %) forms) )))
-          (assoc inner :forms forms-new :bad-syms bad-syms))
-
-        :else inner))
-    inner))
-
-
-
-
-(defn update-model [input-node-id raw-input evaluation [args model]]
-  "An inner model's dependencies are its children AS A MODEL. E.g a 'let' depends on its layers.
-  Thus, during the PREWALK we set all child input values of the overridden input node to nil.
-  This is because those values are no longer necessarily consistent with the override value.
-
-  An inner model's dependents are its parents as a model. Thus, during the POSTWALK we propagate the
-  override value and remaining inferred valued."
-  (->>
-      model
-      ;; preliminary prewalk to assoc the input and evaluation to input model
-      (w/prewalk
-        (fn [inner]
-          (cond
-
-            (and (map? inner)
-                   (= (get inner :id) input-node-id))
-            (assoc inner
-              :raw-input raw-input
-              :evaluation evaluation
-              :anc-changed true
-              :desc-changed true
-              :eval? true
-              :sym-vals {})
-
-            (and (map? inner)
-                 (:syms-used inner))
-            (assoc inner
-              :anc-changed false
-              :desc-changed false
-              :eval? true
-              :sym-vals {})
-
-            :else inner)))
-    ;;  set :anc-changed on descendants
-    ((fn [thing] (let [new-thing (w/postwalk set-anc-changed thing)]
-                   (if (= new-thing thing)
-                     thing
-                     (recur new-thing)))))
-    ((fn [thing] (let [new-thing (w/prewalk set-desc-changed thing)]
-                   (if (= new-thing thing)
-                     thing
-                     (recur new-thing)))))
-    ((fn [thing] (let [new-thing (w/prewalk prop-values thing)]
-                   (if (= new-thing thing)
-                     thing
-                     (do
-;;                        (prn "Recurring prop-values with " new-thing)
-                       (recur new-thing))))))
-    (conj [args])))
+             :style {:z-index 1
+                     :position "absolute"
+                     :left  x
+                     :top   0
+                   :width (* ratio-h node-w2)
+                   :height (* ratio-h node-h2 0.25)
+                   :font-size (* ratio-h node-h2 0.25)
+                   }}]))
 
 (defn input-view2 [current-node input-inner head-x head-y ratio-w ratio-h]
   (let [{:keys [id forms head]} input-inner
@@ -706,12 +395,13 @@
                   :on-change
                   (fn [this]
                       (let [raw-input (-> this .-target .-value)
-                          evaluation  (try-read raw-input)]
+                            evaluation  (try-read raw-input)]
 
-                      (swap! node-defs-atom
-                             (fn [node-defs-atom]
-                               (update-in node-defs-atom [current-node :model]
-                                          #(update-model id raw-input evaluation %))))))
+                        (swap! node-defs-atom
+                               (fn [node-defs-atom]
+                                 (update-in node-defs-atom [current-node :model]
+                                            #(model-update-input % id raw-input evaluation))
+                                 ))))
 
                   :style {:z-index 1
                           :position "absolute"
@@ -725,9 +415,7 @@
 
 (defn graph-view2 [current-node]
   (let [[args model] (get-in @node-defs-atom [current-node :model])
-        ;;          code (get-in @node-defs-atom [@current-node :code])
-        ;;         form (try-read code)
-        ;;         [args model] (parse-defn form)
+        arg-syms (keys args)
         svg-height (get model :height)
         svg-width (get model :width)
         ;;         _ (prn (str "svg dims: " svg-width ", " svg-height))
@@ -746,17 +434,17 @@
                           (seq (list pred (:then %) (:else %)))))
                      model)
         arg-edges (->>
-                    (for [i (range (count args))
+                    (for [i (range (count arg-syms))
                           inner seqd-model
                           :when (and (:id inner)
-                                     (some #{(nth args i)} ((:id inner)(:syms-used inner))))]
+                                     (some #{(nth arg-syms i)} ((:id inner)(:syms-used inner))))]
                       (let [[model-x model-y] (get inner :coords-abs)
                             [x2 y2] [(+ (* 0.5 (get-width inner)) model-x)
                                      (+ (- (get-height inner)
                                            (+ node-h2 (* 0.5 (- 1 node-h2)))) model-y)]
-                            x1 (* (inc i) (/ svg-width (inc (count args )) ))
+                            x1 (* (inc i) (/ svg-width (inc (count arg-syms )) ))
                             y1 0]
-                        (edge-group x1 y1 [[x2 y2]] (nth args i))))
+                        (edge-group x1 y1 [[x2 y2]] (nth arg-syms i))))
                     (remove nil?)
                     (vec))
         svg-inner (->>  model
@@ -776,28 +464,32 @@
                                   (basic-view inner)))
                               inner
                               )))
-                        ;;           (conj [:g {:transform "translate(0 1)"}])
 
                         (#(apply (partial conj %) arg-edges)))
+        graph-view (js/document.getElementById "graph-view")
+        graph-width (try (.-clientWidth graph-view)
+                      (catch js/Error je  (prn (str "caught js exception in clientHeight: " je))))
+        graph-height (try (.-clientHeight graph-view)
+                       (catch js/Error je  (prn (str "caught js exception in clientHeight: " je))))
+        ratio-h (/ graph-height svg-height)
+        ratio-w ratio-h
+;;         _ (prn (str "graph view dims in let are " graph-width ", " graph-height))
+        arg-inputs  (for [i (range (count args))]
+                     (let [arg-sym (nth arg-syms i)
+                           {raw-input :raw-input evaluation :evalution :as arg} (args arg-sym)
+
+                            x (* (inc i) (/ graph-width (inc (count arg-syms )) ))]
+                       (arg-input x ratio-w ratio-h arg arg-sym current-node)))
+
         inputs  (w/prewalk
                   (fn [inner]
                     (if (and (map? inner)
                              (:syms-used inner))
                       (let [{:keys [head height width coords-rel id]} inner
                             [x-model y-model] (get inner :coords-rel)
-                            graph-view (js/document.getElementById "graph-view")
-                            svg-inner-view (js/document.getElementById "svg-inner")
-                            graph-height (.-clientHeight graph-view)
-                            graph-width (.-clientWidth graph-view)
-                            ;;                                 _ (prn (str "graph dims: " graph-width " " graph-height))
-                            ratio-h (/ graph-height svg-height)
-                            ratio-w ratio-h
-                            ;;                               _ (prn (str "ratios: " ratio-w " " ratio-h))
-                            ;;                                   x-adjust (* ratio-w )
                             x-actual (* x-model ratio-w)
                                   y-actual (* y-model ratio-h)
-;;                               _(prn (str "coords: " x-actual " " y-actual))
-                              ]
+                            ]
                           (cond
                             (= head 'if )
                             (let [{:keys [syms-used pred then else]} inner
@@ -830,15 +522,15 @@
     [:div {:id "graph-view"
            :style {:height "80%"
                    :position "relative"}}
-;;      [:input {:type "text"
-;;               :style {:z-index 1}}]
-     [:div {:style {
+      (vec (concat [:div {:style {
 ;;                      :position "absolute"
                     :width "50%"
 ;;                     :height "100%"
                     :font-size 0.15
-                    :margin "auto"}}
-       inputs]
+;;                     :margin "auto"
+                     }}
+;;       inputs
+        inputs] arg-inputs))
      [:svg {:width "100%"
             :height "100%"
             :view-box (str 0 " "
@@ -852,6 +544,49 @@
 
 
      ]))
+
+(defn focus-view []
+  (let [current-node   (first @node-history-atom)
+        ;;               code (get-in @node-defs-atom [current-node :code])
+        ]
+    [:div {:style {
+                    ;;                       :display "block"
+                    :position "absolute"
+                    :right 0
+                      :top 0
+                      :height "100%"
+                      :width "50%"}}
+       [:div {:style {:float "top"
+                      :height "20%"
+                      :width "100%"
+                      }}
+        (button-view "back" #(prev-graph))
+
+        (nodes-dropdown)
+       [:p {:style {:position "absolute"
+                    :top 30
+                    :left 30
+                     :font-size 30
+                     :font-family "Ubuntu"}} current-node]]
+       [graph-view2 current-node]
+       ]
+      ))
+
+
+(defn editor-view []
+  (do (prn "rendering editor view")
+    (reagent/create-class
+    {:reagent-render         (fn [] @cm-atom [:div {:id "cm-wrapper"
+                                                    :style {:position "absolute"
+                                                            :top 0
+                                                            :left 0
+                                                            :height "100%"
+                                                            :width "50%"
+                                                            :border-right "solid grey 2px"}
+                                                    }])
+     :component-did-update   (update-editor "cm-wrapper")
+     :component-did-mount    (update-editor "cm-wrapper")})))
+
 
 
 
@@ -1173,62 +908,6 @@
 ;;              (input-view x y start @graph @graph-width @graph-height)
 ;;              ))
 ;;          ))]))
-
-(defn focus-view []
-  (let [current-node   (first @node-history-atom)
-        ;;               code (get-in @node-defs-atom [current-node :code])
-        ]
-    [:div {:style {
-                    ;;                       :display "block"
-                    :position "absolute"
-                    :right 0
-                      :top 0
-                      :height "100%"
-                      :width "50%"}}
-       [:div {:style {:float "top"
-                      :height "20%"
-                      :width "100%"
-                      }}
-        (button-view "back" #(prev-graph))
-
-        (nodes-dropdown)
-       [:p {:style {:position "absolute"
-                    :top 30
-                    :left 30
-                     :font-size 30
-                     :font-family "Ubuntu"}} current-node]]
-       [graph-view2 current-node]
-       ]
-      ))
-
-
-(defn editor-view []
-  (do (prn "rendering editor view")
-    (reagent/create-class
-    {:reagent-render         (fn [] @cm-atom [:div {:id "cm-wrapper"
-                                                    :style {:position "absolute"
-                                                            :top 0
-                                                            :left 0
-                                                            :height "100%"
-                                                            :width "50%"
-                                                            :border-right "solid grey 2px"}
-                                                    }])
-     :component-did-update   (update-editor "cm-wrapper")
-     :component-did-mount    (update-editor "cm-wrapper")})))
-
-;; (defn all-view []
-;;   [:div
-;;    [editor-view]
-;;    [focus-view]
-;;    ])
-
-
-;; Render the root comp
-;; (defn start []
-;;   (render-component
-;;     [all-view]
-;;     (.getElementById js/document "root")))
-
 
 
 
