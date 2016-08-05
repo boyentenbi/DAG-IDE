@@ -261,10 +261,13 @@
           :stroke-dasharray "0.01, 0.02"
           :fill "none"}])
 
-(defn node-view2 [x y text]
-  [:g {:transform (str "translate(" (+ x (* 0.5 (- 1 node-w2))) " " (+ y (* 0.5 (- 1 node-h2))) ")")}
+(defn node-view2 [x y node]
+  [:g
+   {:transform (str "translate(" (+ x (* 0.5 (- 1 node-w2))) " " (+ y (* 0.5 (- 1 node-h2))) ")")
+    :on-click (when (@node-defs-atom node)
+                #(next-graph node))}
    [:rect {:height node-h2 :width node-w2 :stroke-width 0.045 :stroke "orange" :fill "white"}]
-   [:text {:transform (str "translate(" 0.06 " " 0.17 ")")} text]])
+   [:text {:transform (str "translate(" 0.06 " " 0.17 ")")} node]])
 
 (defn if-view [if-model]
   (let [{:keys [height width coords-rel syms-used head pred then else]} if-model
