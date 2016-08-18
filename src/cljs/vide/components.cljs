@@ -10,13 +10,10 @@
             [vide.parser2 :refer [literal? model-pipeline parse-defn assoc-coords
                                   get-height get-width]]
             [vide.propagation :refer [prop-values set-desc-changed set-anc-changed
-                                      model-update-input model-update-arg-input  update-model]]
-            ))
+                                      model-update-input model-update-arg-input  update-model]]))
 
+;; ---------------------------------------- namespaces ----------------------------------------------
 
-;; ---------------------------------------- node definitions ----------------------------------------------
-
-(def node-defs-atom (atom {}))
 (def pretend-code
   (str
     "(defn square [x] (let [y (* x x)] y))"
@@ -50,9 +47,8 @@
     f (reduce + e)
     g (square f)] g))"))
 
-(defn load-node-defs []
-  (let [code pretend-code
-        forms  (read-string (str \( pretend-code \) ))
+(defn load-node-defs [code]
+  (let [forms  (read-string (str \( code \) ))
         defn-forms (filter #(= 'defn (first %)) forms)
         names (map #(str (second %)) defn-forms)
         codes (map str defn-forms) ;;that name lol
@@ -61,10 +57,9 @@
         defs (map #(hash-map :code %1 :fn %2) codes
                   evald-codes)
         node-defs (zipmap names defs)]
-    (reset! node-defs-atom node-defs)))
+    node-defs))
 
-
-(load-node-defs)
+(def namespaces-atom (atom {"my-namespace" (load-node-defs pretend-code)}))
 
 ;; ---------------------------------------- node history ----------------------------------------------
 
@@ -83,7 +78,7 @@
                                }))))
 (defn on-cm-update []
   (fn [this]
-    (when-let [current-node (first @node-history-atom)]
+    (when-let [[space node] (first @node-history-atom)]
       (let [new-text (.getValue this)
 
             compiled (try-read new-text)
@@ -94,11 +89,11 @@
             ;;                                        (conj (str func-name)))
             evald (try-eval (cons 'fn (drop 1  compiled)))
             ]
-        (swap! node-defs-atom #(assoc-in % [current-node :code] new-text))
-        (when evald (swap! node-defs-atom #(assoc-in % [current-node :fn] evald)))
+        (swap! namespaces-atom #(assoc-in % [space node :code] new-text))
+        (when evald (swap! namespaces-atom #(assoc-in % [space node :fn] evald)))
         (when-let [model (parse-defn (try-read new-text))]
             (do
-              (swap! node-defs-atom #(assoc-in % [current-node :model] model))
+              (swap! namespaces-atom #(assoc-in % [space node :model] model))
               )
           ))
       ;;                                         (reset! node-defs-atom
@@ -113,17 +108,19 @@
 
 ;; -----------------------------------------functions---------------------------------------------
 
-(defn next-graph [node]
+(defn next-graph [space node]
   (do
-    (swap! node-history-atom #(conj (remove #{node} %) node))
-    (.setValue @cm-atom (get-in @node-defs-atom [node :code]))
+    (swap! node-history-atom #(conj % [space node]))
+    (if node
+      (.setValue @cm-atom (get-in @namespaces-atom [space node :code]))
+      (.setValue @cm-atom ""))
     @node-history-atom))
 
 (defn prev-graph []
   (do
     (swap! node-history-atom #(drop 1 %))
-    (if-let [current-node (first @node-history-atom)]
-      (.setValue @cm-atom (get-in @node-defs-atom [current-node :code]))
+    (if-let [[space node] (first @node-history-atom)]
+      (.setValue @cm-atom (get-in @namespaces-atom [space node :code]))
       (.setValue @cm-atom ""))))
 
 (defn update-editor [wrapper-id]
@@ -176,31 +173,31 @@
 
 ;; ---------------------------------------- composite views ----------------------------------------------
 
-(defn nodes-dropdown []
-  [:select
-   {:id "node-select"
-    :on-change #(let [node (-> % .-target .-value)]
-                  (next-graph node))
-    :style {:list-style-type "none"
-            :position "absolute"
-            :right 10
-            :top 10
-            :outline "none"
-            :background-color "orange"
-            :border "solid orange"
-            :border-radius "2px"
-            :color "white"
-            :text-align "left"
-            :text-decoration "none"
-            :display "inline-block"
-            :font-family "Ubuntu"
-            ;;             :width "40%"
-            :font-size "14px"
-            :padding "5px 16px"}}
+;; (defn nodes-dropdown []
+;;   [:select
+;;    {:id "node-select"
+;;     :on-change #(let [node (-> % .-target .-value)]
+;;                   (next-graph node))
+;;     :style {:list-style-type "none"
+;;             :position "absolute"
+;;             :right 10
+;;             :top 10
+;;             :outline "none"
+;;             :background-color "orange"
+;;             :border "solid orange"
+;;             :border-radius "2px"
+;;             :color "white"
+;;             :text-align "left"
+;;             :text-decoration "none"
+;;             :display "inline-block"
+;;             :font-family "Ubuntu"
+;;             ;;             :width "40%"
+;;             :font-size "14px"
+;;             :padding "5px 16px"}}
 
-   (conj (for [node (keys @node-defs-atom)]
-           (dropdown-node node))
-         [:option {:key "select-label"} "Choose node"])])
+;;    (conj (for [node (keys @node-defs-atom)]
+;;            (dropdown-node node))
+;;          [:option {:key "select-label"} "Choose node"])])
 
 (defn arrowhead-view [x y th col]
   (let [p1 (str x "," y)
@@ -249,8 +246,7 @@
                       :style {:stroke col
                               :stroke-width 0.016
                               :opacity 1}}]
-              (arrowhead-view arrowhead-x arrowhead-y th col)]))
-       ))))
+              (arrowhead-view arrowhead-x arrowhead-y th col)]))))))
 
 (defn separator-view [x y w h]
   [:rect {:transform (str "translate(" x " " y ")")
@@ -261,13 +257,17 @@
           :stroke-dasharray "0.01, 0.02"
           :fill "none"}])
 
-(defn node-view2 [x y node]
-  [:g
-   {:transform (str "translate(" (+ x (* 0.5 (- 1 node-w2))) " " (+ y (* 0.5 (- 1 node-h2))) ")")
-    :on-click (when (@node-defs-atom node)
-                #(next-graph node))}
-   [:rect {:height node-h2 :width node-w2 :stroke-width 0.045 :stroke "orange" :fill "white"}]
-   [:text {:transform (str "translate(" 0.06 " " 0.17 ")")} node]])
+(defn node-view2 [x y space node]
+  (do
+    [:g
+     {:transform (str "translate(" (+ x (* 0.5 (- 1 node-w2))) " " (+ y (* 0.5 (- 1 node-h2))) ")")
+      :on-click (when (get-in @namespaces-atom [space node])
+                  #(next-graph space node))}
+     [:rect {:height node-h2 :width node-w2 :stroke-width 0.045 :stroke "orange" :fill "white"}]
+     [:text {
+;;               :id id
+             :transform (str "translate(" 0.06 " " 0.17 ")")}
+      node]]))
 
 (defn if-view [if-model]
   (let [{:keys [height width coords-rel syms-used head pred then else]} if-model
@@ -275,7 +275,7 @@
         else-width (get-width else)
         then-width (get-width then)]
     [:g {:transform (str "translate" coords-rel )}
-     [:text (str head)]
+     [:text  (str head)]
      [:g
       (separator-view 0 0 width height)
       (separator-view 0 pred-height else-width (- height pred-height))
@@ -330,7 +330,7 @@
                  syms-removed
                  [final]))))
 
-(defn basic-view [basic-model]
+(defn basic-view [space basic-model]
   (let [{:keys [height width coords-rel coords-abs syms-used head forms]} basic-model
         head-x (- (* 0.5 width) 0.5)
         head-y (dec height)
@@ -350,11 +350,11 @@
                       (edge-group x1 y1 [[(+ head-x 0.5) (+ head-y (* 0.5 (- 1 node-h2)) )]] nil))]
     (vec (concat [:g {:transform (str "translate" coords-rel)} ]
                  forms
-                 [(node-view2 head-x head-y (str head))]
+                 [(node-view2 head-x head-y space (str head))]
                  edge-groups))))
 
 
-(defn arg-input [x ratio-w ratio-h arg arg-sym current-node]
+(defn arg-input [x ratio-w ratio-h arg arg-sym space current-node]
   (let [ input-x (* ratio-w (- x (* 0.5 node-w2)))]
     [:input {:type "text"
            :value (or (:evaluation arg)
@@ -363,25 +363,25 @@
                         (let [raw-input (-> this .-target .-value)
                               evaluation  (try-read raw-input)]
 
-                          (swap! node-defs-atom
-                                 (fn [node-defs-atom]
-                                   (-> node-defs-atom
-                                       (update-in [current-node :model 0 arg-sym]
+                          (swap! namespaces-atom
+                                 (fn [namespaces-atom]
+                                   (-> namespaces-atom
+                                       (update-in [space current-node :model 0 arg-sym]
                                                   #(assoc % :raw-input raw-input
                                                              :evaluation evaluation))
-                                       (update-in [current-node :model]
+                                       (update-in [space current-node :model]
                                                   #(model-update-arg-input % arg-sym raw-input evaluation)))))))
 
              :style {:z-index 1
                      :position "absolute"
                      :left  x
                      :top   0
-                   :width (* ratio-h node-w2)
-                   :height (* ratio-h node-h2 0.25)
-                   :font-size (* ratio-h node-h2 0.25)
-                   }}]))
+                     :width (* ratio-h node-w2)
+                     :height (* ratio-h node-h2 0.25)
+                     :font-size (* ratio-h node-h2 0.25)
+                     }}]))
 
-(defn input-view2 [current-node input-inner head-x head-y ratio-w ratio-h]
+(defn input-view2 [current-space current-node input-inner head-x head-y ratio-w ratio-h]
   (let [{:keys [id forms head]} input-inner
         input-x (* ratio-w (- (* 0.5 (get-width input-inner)) (* 0.5 node-w2)))
         input-y (* ratio-h (- (get-height input-inner) (* 0.5 (- 1 node-h2))))]
@@ -397,14 +397,13 @@
                                   ""))
                   :on-change
                   (fn [this]
-                      (let [raw-input (-> this .-target .-value)
-                            evaluation  (try-read raw-input)]
+                    (let [raw-input (-> this .-target .-value)
+                          evaluation  (try-read raw-input)]
 
-                        (swap! node-defs-atom
-                               (fn [node-defs-atom]
-                                 (update-in node-defs-atom [current-node :model]
-                                            #(model-update-input % id raw-input evaluation))
-                                 ))))
+                      (swap! namespaces-atom
+                             (fn [namespaces-atom]
+                               (update-in namespaces-atom [current-space current-node :model]
+                                          #(model-update-input % id raw-input evaluation))))))
 
                   :style {:z-index 1
                           :position "absolute"
@@ -416,8 +415,8 @@
                           }}]]
         forms))))
 
-(defn graph-view2 [current-node]
-  (let [[args model] (get-in @node-defs-atom [current-node :model])
+(defn graph-view2 [current-space current-node]
+  (let [[args model] (get-in @namespaces-atom [current-space current-node :model])
         arg-syms (keys args)
         svg-height (get model :height)
         svg-width (get model :width)
@@ -464,7 +463,7 @@
                                   (let-view inner)
 
                                   (ifn? head)
-                                  (basic-view inner)))
+                                  (basic-view current-space inner)))
                               inner
                               )))
 
@@ -482,7 +481,7 @@
                            {raw-input :raw-input evaluation :evalution :as arg} (args arg-sym)
 
                             x (* (inc i) (/ graph-width (inc (count arg-syms )) ))]
-                       (arg-input x ratio-w ratio-h arg arg-sym current-node)))
+                       (arg-input x ratio-w ratio-h arg arg-sym current-space current-node)))
 
         inputs  (w/prewalk
                   (fn [inner]
@@ -518,7 +517,7 @@
                                       [final])))
 
                             (ifn? head)
-                            (input-view2 current-node inner x-actual y-actual ratio-w ratio-h)))
+                            (input-view2 current-space current-node inner x-actual y-actual ratio-w ratio-h)))
                      inner
                      )) model)]
 
@@ -529,62 +528,113 @@
 ;;                      :position "absolute"
                     :width "50%"
 ;;                     :height "100%"
-                    :font-size 0.15
+                    :font-size 0.12
 ;;                     :margin "auto"
                      }}
 ;;       inputs
         inputs] arg-inputs))
      [:svg {:width "100%"
             :height "100%"
-            :view-box (str 0 " "
-                           0 " "
-                           svg-width " "
-                           svg-height)
+            :view-box (str (if (< svg-width 3) (- (/ svg-width 2) 1.5) 0) " "
+                           (if (< svg-height 3) (- (/ svg-height 2) 1.5) 0) " "
+                           (max 3 svg-width) " "
+                           (max 3 svg-height))
             :style {:position "absolute"
-                    :font-size 0.15}}
-      svg-inner]
+                    :font-size 0.12}}
+      svg-inner]]))
 
+(defn folder-view []
+  [:div {:id "folder-view"
+         :style {:height "80%"
+                 :position "relative"}}
+   (let [folder-vec  (keys @namespaces-atom)
+         rows   (vec (map vec (partition-all 4 folder-vec)))
+         n-rows (count rows)]
+     (vec
+       (concat
+         [:svg {:width "100%"
+                :height "100%"
+                :view-box (str 0 " "
+                               0 " "
+                               4 " "
+                               n-rows)
+                :style {:position "absolute"
+                        :font-size 0.15}}]
 
+         (for [i (range n-rows)
+               j (range (count (nth rows i)))]
+           (let [space (get-in rows [i j])]
+             [:g
+              {:transform (str "translate(" (+ (* 0.5 node-w2) j) " " (+ (* 0.5 node-h2) i) ")")
+               :on-click (when (get @namespaces-atom space)
+                           #(do
+                              (prn (str "moving to " space))
+                              (next-graph space nil)))}
+              [:rect {:height node-h2 :width node-w2 :stroke-width 0.045 :stroke "#3399ff" :fill "white"}]
+              [:text {:transform (str "translate(" 0.06 " " 0.17 ")")} space]])))))])
 
-     ]))
+(defn namespace-view [space-name]
+  [:div {:id "namespace-view"
+         :style {:height "80%"
+                 :position "relative"}}
+   (let [space (seq (@namespaces-atom space-name))
+         rows (vec (map vec (partition-all 4 space)))
+         n-rows (count rows)]
+     (vec
+       (concat
+         [:svg {:width "100%"
+                :height "100%"
+                :view-box (str 0 " "
+                               0 " "
+                               4 " "
+                               n-rows)
+                :style {:position "absolute"
+                        :font-size 0.15}}]
+
+         (for [i (range n-rows)
+               j (range (count (nth rows i)))]
+           (let [[node-name dict] (get-in rows [i j])]
+             [node-view2 j i space-name node-name])))))])
 
 (defn focus-view []
-  (let [current-node   (first @node-history-atom)
-        ;;               code (get-in @node-defs-atom [current-node :code])
-        ]
-    [:div {:style {
-                    ;;                       :display "block"
-                    :position "absolute"
-                    :right 0
-                      :top 0
-                      :height "100%"
-                      :width "50%"}}
-       [:div {:style {:float "top"
-                      :height "20%"
-                      :width "100%"
-                      }}
-        (button-view "back" #(prev-graph))
+  [:div {:style {:position "absolute"
+                 :right 0
+                 :top 0
+                 :height "100%"
+                 :width "50%"}}
+   [:div {:style {:float "top"
+                  :height "20%"
+                  :width "100%"
+                  }}
+    (button-view "Up" #(prev-graph))
 
-        (nodes-dropdown)
-       [:p {:style {:position "absolute"
-                    :top 30
-                    :left 30
-                     :font-size 30
-                     :font-family "Ubuntu"}} current-node]]
-       [graph-view2 current-node]
-       ]
-      ))
+    ;;         (nodes-dropdown)
+    [:p {:style {:position "absolute"
+                 :top 30
+                 :left 30
+                 :font-size 30
+                 :font-family "Ubuntu"}} (first @node-history-atom)]]
+   (if-let [[space-name node] (first @node-history-atom)]
+     (if node
+       (do
+;;          (prn (str "found node: " node " , opening view"))
+         [graph-view2 space-name node])
+       (do
+;;          (prn (str "no node, opening view for space: " space-name))
+         [namespace-view space-name]))
+     [folder-view]
+     )])
 
 
 (defn editor-view []
   (do (prn "rendering editor view")
     (reagent/create-class
-    {:reagent-render         (fn [] @cm-atom [:div {:id "cm-wrapper"
-                                                    :style {:position "absolute"
-                                                            :top 0
-                                                            :left 0
-                                                            :height "100%"
-                                                            :width "50%"
+      {:reagent-render         (fn [] @cm-atom [:div {:id "cm-wrapper"
+                                                      :style {:position "absolute"
+                                                              :top 0
+                                                              :left 0
+                                                              :height "100%"
+                                                              :width "50%"
                                                             :border-right "solid grey 2px"}
                                                     }])
      :component-did-update   (update-editor "cm-wrapper")
