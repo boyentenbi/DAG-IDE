@@ -9,7 +9,7 @@ This lends itself to a very intuitive navigation and debugging methods:
 * You can click on a node to open up its definition
 * You can view the value of intermediate objects in a function next to each arrow.
 
-However,Didn't quite work because the graphs were too complicated.
+However, this didn't quite work because the graphs were too complicated.
 
 Still:
 
