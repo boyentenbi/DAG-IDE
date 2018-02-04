@@ -1,6 +1,4 @@
 # DAG-IDE
-My attempt at writing an IDE for Clojure that turns your code into a DAG in real time.
-
 I wanted to make programming and debugging more intuitive. 
 
 Code written in functional languages can be converted to a DAG, where every function is a node and every object is an arrow.
@@ -9,9 +7,9 @@ This lends itself to a very intuitive navigation and debugging methods:
 * You can click on a node to open up its definition
 * You can view the value of intermediate objects in a function next to each arrow.
 
-However, this didn't quite work because the graphs were too complicated.
+I managed to render small Clojure programs as DAGs in real time, but for large programs the graphs were too complicated.
 
-Still:
+GIF:
 
 ![Alt Text](https://media.giphy.com/media/l3diTjMJ5J9s9wb04/giphy.gif)
 
