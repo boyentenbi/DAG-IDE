@@ -15,6 +15,16 @@ GIF:
 
 Full video (2 more on my channel): https://www.youtube.com/watch?v=zEQDPJNM0-Q
 
+# I learned
+
+* How to write code without mutation
+* How to write front-ends which rely on the functional reactive paradigm
+* How to write code in a LISP
+* That rendering an arbitrary graph is not trivial
+* Not to work on my own!
+
+(as a former mathmo there's something pleasing about LISPs)
+
 # How it works
 
 Most of the code performs a single transformation between two trees:
@@ -29,17 +39,4 @@ Clojure has many special forms however, such as 'let', which make constructing t
 
 The rest of the code is dedicated to rendering the graph. This was when I realised the project would not succeed. Any piece of code more than 5 lines long creates an extremely complicated graph.
 
-# I learned
-
-* How to write code without mutation
-
-* How to write front-ends which rely on the functional reactive paradigm
-
-* How to write code in a LISP
-
-* That rendering an arbitrary graph is not trivial
-
-* Not to work on my own!
-
-(as a former mathmo there's something pleasing about LISPs)
 
