@@ -29,6 +29,8 @@ The IDE was not only for Clojure code, it was written in Clojure. This made me m
 
 Clojure has many special forms however, such as 'let', which make constructing the HTML code from the Clojure expression more difficult. I spent a lot of time dealing with these special forms. I didn't even get to work on things like pattern-matching.
 
+The rest of the code is dedicated to rendering the graph. This was when I realised the project would not succeed. Any piece of code more than 5 lines long creates an extremely complicated graph.
+
 # I learned
 
 * How to write code without mutation
@@ -36,6 +38,8 @@ Clojure has many special forms however, such as 'let', which make constructing t
 * How to write front-ends which rely on the functional reactive paradigm
 
 * How to write code in a LISP
+
+* That rendering an arbitrary graph is not trivial
 
 * Not to work on my own!
 
